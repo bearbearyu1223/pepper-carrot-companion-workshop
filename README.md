@@ -1,12 +1,13 @@
 # pepper-carrot-companion-workshop
 
-Companion code for the first three posts of the **Pepper & Carrot AI-powered flipbook** series. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts.
+Companion code for the first four posts of the **Pepper & Carrot AI-powered flipbook** series. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts.
 
 - **Post 1 — [When Your Chunks Are Comic Pages](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-trailer/)** *(series introduction; no code)*
 - **Post 2 — [Setting Up the Workshop](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/)** *(Postgres, Ollama, FastAPI scaffold, first Alembic migration, one episode on disk)*
 - **Post 3 — [Provider Abstractions](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-provider-abstractions/)** *(`Storage` / `EmbeddingClient` / `ChatClient` Protocols, the factory, a `LocalStorage` end-to-end loop, and `OllamaEmbeddingClient` + `SentenceTransformersEmbeddingClient` producing real 1024-dim vectors)*
+- **Post 4 — [Claude Skills as an Ingestion Tool](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-claude-skill-ingestion/)** *(the `ingest-from-images` Claude Code skill + the Python pipeline that lands one episode's worth of pages into Postgres + ChromaDB + LocalStorage)*
 
-Subsequent posts (Post 4 onwards — ingestion via Claude Skills, the RAG layer, the frontend flipbook, the world graph, the cloud deploy) build on top of this scaffold in a separate repository.
+Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, world graph, cloud deploy) build on top of this scaffold in a separate repository.
 
 ## What's in here
 
@@ -32,8 +33,20 @@ Subsequent posts (Post 4 onwards — ingestion via Claude Skills, the RAG layer,
 │           ├── models.py       # 10 SQLAlchemy 2.0 typed tables
 │           ├── session.py      # async engine + session factory
 │           └── seed.py         # 31-character canonical roster
+├── .claude/
+│   └── skills/
+│       └── ingest-from-images/ # the Claude Code skill (Post 4)
+│           ├── SKILL.md        #   six-step body Claude follows
+│           └── scripts/
+│               └── reingest_with_json.sh   # Stage 1 → Stage 2 bridge
 ├── ingestion/
-│   └── acquire.py              # downloads one episode from peppercarrot.com
+│   ├── pyproject.toml          # Python deps for the ingestion pipeline (Post 4)
+│   ├── acquire.py              # downloads one episode from peppercarrot.com (Post 2)
+│   ├── ingest.py               # the Stage 2 orchestrator (Post 4)
+│   ├── images.py               # Pillow image variants + blurhash + dominant color
+│   ├── episode_loader.py       # validates metadata.yaml + lists page files
+│   ├── repository.py           # async DB upsert helpers
+│   └── chroma_writer.py        # pages_v1 embedding writes
 └── tests/                      # smoke tests for LocalStorage + both embedding clients
 ```
 
@@ -156,7 +169,7 @@ uv run python acquire.py episode \
 
 `data/raw/ep01-potion-of-flight/` should now contain `metadata.yaml`, `cover.jpg`, and `pages/page_001.jpg` (and 002, 003). Open `page_001.jpg` in an image viewer to confirm it's a real page and not an HTML 404 saved with a `.jpg` extension.
 
-### 8. (Optional) Seed the character roster
+### 8. Seed the character roster
 
 ```bash
 cd backend
@@ -164,17 +177,73 @@ uv run python -m app.db.seed
 # 31 named characters upserted into `characters`
 ```
 
-The seed is idempotent — re-run safely.
+The seed is idempotent — re-run safely. **Required before Step 9** (Post 4): the `ingest-from-images` skill anchors `characters_present` against these names, and the page-character link step warn-skips anything not in this table.
+
+### 9. Ingest episode 1 from images (Post 4)
+
+Install ingestion deps:
+
+```bash
+cd ingestion
+uv sync                          # workspace install; reuses the backend's app/ module
+```
+
+Open Claude Code in the repo root:
+
+```bash
+cd ~/Documents/GitHub/pepper-carrot-companion-workshop
+claude
+```
+
+Inside Claude Code, type:
+
+```
+ingest episode 1 from images
+```
+
+The `ingest-from-images` skill auto-loads (its `description` matches the trigger phrase). Claude reads each page image with the `Read` tool, writes a sibling `page_NNN.json` next to it, validates every JSON, then runs the wrapper script:
+
+```bash
+.claude/skills/ingest-from-images/scripts/reingest_with_json.sh ep01-potion-of-flight
+```
+
+The wrapper script flips `VISION_PROVIDER=json` in `.env` for the duration (and reverts on exit), then runs `ingest.py` in the `ingestion/` folder. Stage 2 takes ~30–60 seconds: Pillow variants → uploads → DB upserts → Chroma embeddings → plot summary.
+
+**Verify the result:**
+
+```bash
+# All pages in the DB, with a description preview
+docker exec peppercarrot-postgres psql -U peppercarrot -d peppercarrot -c "
+  SELECT p.page_number, LEFT(p.visual_description, 80) AS preview
+  FROM pages p JOIN episodes e ON e.id = p.episode_id
+  WHERE e.slug = 'ep01-potion-of-flight'
+  ORDER BY p.page_number;
+"
+
+# ChromaDB chunks
+cd backend && uv run python -c "
+import chromadb
+client = chromadb.PersistentClient(path='../data/chroma')
+col = client.get_collection('pages_v1')
+print(f'pages_v1 has {col.count()} chunks')
+"
+
+# Image variants on disk
+ls data/images/episodes/ep01-potion-of-flight/pages/
+```
+
+If all three queries return non-empty results, the episode is fully ingested. See [Post 4](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-claude-skill-ingestion/) for the design walkthrough.
 
 ## A few things this repo intentionally does *not* include
 
 - **Frontend / flipbook UI** (Post 5+ adds it).
 - **API routers** beyond `/health` and `/images` (Post 5 wires episodes / pages, Post 6+ wires chat).
-- **Chat orchestration & retrieval pipeline** (Post 6).
-- **Claude Code skills** for page descriptions and the world graph (Posts 4 and 9).
+- **Chat orchestration & retrieval pipeline** (Post 6+).
+- **Wiki + world-graph ingestion paths** (Posts 6 and 9). The `ingest.py` here covers only the episode path; wiki/world-graph helpers were trimmed for clarity.
+- **The `extract-world-graph` Claude Code skill** (Post 9).
 - **Cloud deploy** (Modal / Fly / R2 / Neon) — Post 10.
 
-Some of `pyproject.toml`'s dependencies (`chromadb`, `boto3`, `pillow`, `blurhash`) are listed because they're used by later phases. They install but aren't exercised by anything in this repo. The lockfile is committed so installs are byte-reproducible.
+Some of `backend/pyproject.toml`'s dependencies (`chromadb`, `boto3`, `pillow`, `blurhash`) are listed because they're used in this workshop scope or by later phases. The lockfile is committed so installs are byte-reproducible.
 
 ## Pepper & Carrot is © David Revoy
 
