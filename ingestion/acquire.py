@@ -42,8 +42,8 @@ EPISODES_MANIFEST_URL = f"{SOURCES_BASE}/episodes-v1.json"
 
 # Be a polite citizen — identify ourselves so peppercarrot.com's logs make sense.
 DEFAULT_HEADERS = {
-    "User-Agent": "peppercarrot-companion/0.1 (educational reading-companion project; "
-    "+https://github.com/your-username/peppercarrot-companion)",
+    "User-Agent": "pepper-carrot-companion-workshop/0.1 (educational reading-companion project; "
+    "+https://github.com/bearbearyu1223/pepper-carrot-companion-workshop)",
 }
 
 # Skip non-story slots when downloading "story pages." We still record them in

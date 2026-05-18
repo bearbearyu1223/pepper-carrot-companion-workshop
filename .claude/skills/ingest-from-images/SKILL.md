@@ -1,5 +1,13 @@
 ---
-description: Ingest a Pepper&Carrot episode by describing each page image yourself (via the Read tool) and writing PageDescription JSON files that the JsonFileVisionClient picks up. This is the standard ingestion path for the project — there is no other vision provider. Trigger phrases include "ingest episode N", "ingest episode N from images", "describe pages for episode N", "re-describe pages for episode N", "describe the missing pages of episode N", "ingest-from-images", "set up episode N for the chat".
+description: >-
+  Ingest a Pepper&Carrot episode by describing each page image yourself
+  (via the Read tool) and writing PageDescription JSON files that the
+  JsonFileVisionClient picks up. This is the standard ingestion path for
+  the project — there is no other vision provider. Trigger phrases
+  include "ingest episode N", "ingest episode N from images", "describe
+  pages for episode N", "re-describe pages for episode N", "describe the
+  missing pages of episode N", "ingest-from-images", "set up episode N
+  for the chat".
 allowed-tools:
   - Read
   - Write
@@ -117,13 +125,12 @@ root):
 
 ```bash
 # Resolve the project root from anywhere the Bash tool happens to be in:
-ROOT=$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null \
-       || echo /Users/hanyu/Documents/GitHub/peppercarrot-companion-app)
+ROOT=$(git -C "$(pwd)" rev-parse --show-toplevel)
 "$ROOT/.claude/skills/ingest-from-images/scripts/reingest_with_json.sh" <slug>
 ```
 
-(The fallback path is hardcoded for this machine; the `git rev-parse` form
-works in any clone of the repo.)
+(If `git rev-parse` fails — e.g. running outside a git clone — the script
+invocation will surface a clear error rather than silently using a wrong path.)
 
 ## Step 6 — Verify
 
