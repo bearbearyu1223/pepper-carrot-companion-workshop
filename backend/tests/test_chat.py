@@ -67,7 +67,7 @@ class _FakeOrchestrator:
     """Yields a fixed token stream + done event — no model, no DB."""
 
     async def stream_response(
-        self, db: Any, session_id: uuid.UUID, mode: str, user_message: str
+        self, db: Any, session_id: uuid.UUID, mode: str, user_message: str, spread: bool = False
     ) -> AsyncIterator[dict[str, object]]:
         yield {"event": "token", "data": {"text": "Hello "}}
         yield {"event": "token", "data": {"text": "world"}}

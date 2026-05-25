@@ -96,8 +96,13 @@ class ChatOrchestrator:
         session_id: uuid.UUID,
         mode: Mode,
         user_message: str,
+        spread: bool = False,
     ) -> AsyncIterator[dict[str, object]]:
         """Run the pipeline, yielding SSE-shaped events.
+
+        `spread` is the client's report of whether a two-page spread is on
+        screen (wide viewport). When True, page mode describes both visible
+        pages — see `_load_context`. It does not affect the spoiler boundary.
 
         Events:
           {"event": "token", "data": {"text": "..."}}
@@ -106,8 +111,8 @@ class ChatOrchestrator:
         """
         started_at = time.monotonic()
 
-        # 1. Resolve session context.
-        session, episode, page = await self._load_context(db, session_id)
+        # 1. Resolve session context — the visible page(s): one, or both on a spread.
+        session, episode, pages = await self._load_context(db, session_id, spread=spread)
 
         # 2. Persist the user message immediately.
         db.add(
@@ -137,7 +142,7 @@ class ChatOrchestrator:
             current_page=session.current_page,
         )
         messages = await self._assemble_messages(
-            db, session, episode, page, mode, user_message, retrieved_text
+            db, session, episode, pages, mode, user_message, retrieved_text
         )
 
         # 6. Stream tokens.
@@ -186,8 +191,22 @@ class ChatOrchestrator:
         self,
         db: AsyncSession,
         session_id: uuid.UUID,
-    ) -> tuple[models.ChatSession, models.Episode, models.Page]:
-        """Fetch the session, its episode, and the page the reader is on."""
+        *,
+        spread: bool,
+    ) -> tuple[models.ChatSession, models.Episode, list[models.Page]]:
+        """Fetch the session, its episode, and the page(s) the reader can see.
+
+        `chat_sessions.current_page` is the leftmost visible page. On a wide
+        viewport the flipbook shows a two-page spread, so the client passes
+        `spread=True` and we also load `current_page + 1` when it exists — the
+        chat should reflect everything on screen, not just the left page. In
+        portrait (single page) `spread` is False and only the current page loads.
+
+        This does not widen the spoiler boundary: retrieval is still gated at
+        `current_page` (see `RetrievalService`). The right-hand page is fed
+        directly because the reader is *looking at it* — a page on screen can't
+        be a spoiler.
+        """
         stmt = (
             select(models.ChatSession, models.Episode, models.Page)
             .join(models.Episode, models.ChatSession.episode_id == models.Episode.id)
@@ -205,8 +224,23 @@ class ChatOrchestrator:
                 f"Session {session_id} not found, or its current page has no row "
                 "in the linked episode."
             )
-        session, episode, page = row
-        return session, episode, page
+        session, episode, left_page = row
+        pages = [left_page]
+
+        if spread:
+            right_stmt = (
+                select(models.Page)
+                .where(
+                    models.Page.episode_id == episode.id,
+                    models.Page.page_number == session.current_page + 1,
+                )
+                .options(selectinload(models.Page.characters))
+            )
+            right_page = (await db.execute(right_stmt)).scalar_one_or_none()
+            if right_page is not None:
+                pages.append(right_page)
+
+        return session, episode, pages
 
     async def _fetch_chunk_text(
         self,
@@ -267,7 +301,7 @@ class ChatOrchestrator:
         db: AsyncSession,
         session: models.ChatSession,
         episode: models.Episode,
-        page: models.Page,
+        pages: list[models.Page],
         mode: Mode,
         user_message: str,
         retrieved_text: list[tuple[RetrievedChunk, str]],
@@ -277,7 +311,7 @@ class ChatOrchestrator:
 
         parts: list[str] = []
         if mode == "page":
-            self._render_page_block(parts, episode, page)
+            self._render_page_block(parts, episode, pages)
             references = [(c, t) for c, t in retrieved_text if t]
             if references:
                 parts.append("")
@@ -305,23 +339,39 @@ class ChatOrchestrator:
 
     @staticmethod
     def _render_page_block(
-        parts: list[str], episode: models.Episode, page: models.Page
+        parts: list[str], episode: models.Episode, pages: list[models.Page]
     ) -> None:
+        """Describe the visible page(s). On a spread, both are labeled so the
+        model can attribute facts to the right page."""
         if episode.plot_summary:
             parts.append("=== About this episode ===")
             parts.append(episode.plot_summary)
             parts.append("")
-        parts.append(f"=== Current page (page {page.page_number}) ===")
-        if page.characters:
-            names = ", ".join(sorted(c.name for c in page.characters))
-            parts.append(f"Characters on this page: {names}")
-        parts.append(page.visual_description or "(no description available for this page)")
-        if page.ocr_text:
-            parts.append("")
-            parts.append("Dialogue on this page:")
-            parts.append(page.ocr_text)
-        if page.mood_tags:
-            parts.append(f"Mood: {', '.join(page.mood_tags)}")
+
+        if len(pages) == 2:
+            parts.append(
+                f"=== Current spread (pages {pages[0].page_number} and "
+                f"{pages[1].page_number}, both visible to the reader) ==="
+            )
+        else:
+            parts.append(f"=== Current page (page {pages[0].page_number}) ===")
+
+        for page in pages:
+            if len(pages) == 2:
+                parts.append("")
+                parts.append(f"-- Page {page.page_number} --")
+            if page.characters:
+                names = ", ".join(sorted(c.name for c in page.characters))
+                parts.append(f"Characters on this page: {names}")
+            parts.append(
+                page.visual_description or "(no description available for this page)"
+            )
+            if page.ocr_text:
+                parts.append("")
+                parts.append("Dialogue on this page:")
+                parts.append(page.ocr_text)
+            if page.mood_tags:
+                parts.append(f"Mood: {', '.join(page.mood_tags)}")
 
     async def _load_history(
         self, db: AsyncSession, session_id: uuid.UUID

@@ -58,7 +58,7 @@ export type ChatStreamEvent =
 // are the server's keep-alive heartbeat and are skipped.
 export async function* streamMessage(
   sessionId: string,
-  body: { mode: Mode; message: string },
+  body: { mode: Mode; message: string; spread?: boolean },
 ): AsyncGenerator<ChatStreamEvent> {
   const res = await fetch(`${BASE_URL}/api/sessions/${sessionId}/messages`, {
     method: 'POST',

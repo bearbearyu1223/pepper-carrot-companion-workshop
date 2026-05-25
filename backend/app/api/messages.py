@@ -38,6 +38,11 @@ router = APIRouter()
 class SendMessageBody(BaseModel):
     mode: Mode
     message: str
+    # Whether a two-page spread is on screen (wide viewport). The client knows
+    # its own viewport; the server uses this to describe both visible pages.
+    # It does NOT move the spoiler boundary — that stays at the session's
+    # current_page.
+    spread: bool = False
 
 
 def get_chat_orchestrator(request: Request) -> ChatOrchestrator:
@@ -75,6 +80,7 @@ async def send_message(
                 session_id=session_id,
                 mode=body.mode,
                 user_message=body.message,
+                spread=body.spread,
             ):
                 yield {"event": str(event["event"]), "data": json.dumps(event["data"])}
         except SessionNotFoundError as exc:

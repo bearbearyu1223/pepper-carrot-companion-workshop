@@ -91,7 +91,7 @@ export function ChatPanel({ sessionId, currentPage, isSpread }: ChatPanelProps) 
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
 
     try {
-      for await (const event of streamMessage(sessionId, { mode, message: text })) {
+      for await (const event of streamMessage(sessionId, { mode, message: text, spread: isSpread })) {
         if (event.type === 'token') {
           patch((m) => ({ ...m, content: m.content + event.text }));
         } else if (event.type === 'done') {
