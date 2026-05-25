@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through [Post 5](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-rest-api-flipbook/) (REST API + flipbook frontend) of the blog series, and nothing else. The full project repository (chat orchestrator, world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., `core/prompts.py`, `app/retrieval/`, the world graph) belong to Posts 6–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
+> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 6** (the spoiler-safe RAG layer) of the blog series, and nothing else. The full project repository (streaming chat UI, world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., the streaming chat panel, `WIKI_MODE_SYSTEM` / `SUGGESTIONS_SYSTEM`, the world graph) belong to Posts 7–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
 
 ---
 
@@ -32,7 +32,7 @@ A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, re
 ```
 pepper-carrot-companion-workshop/
 ├── CLAUDE.md                ← you are here
-├── README.md                ← human-facing setup guide, mapped to Posts 2–5
+├── README.md                ← human-facing setup guide, mapped to Posts 2–6
 ├── docker-compose.yml       ← postgres + pgadmin
 ├── .env.example             ← copy to .env and fill in
 ├── docs/
@@ -44,19 +44,27 @@ pepper-carrot-companion-workshop/
 │   ├── app/
 │   │   ├── main.py          ← FastAPI app: lifespan, CORS, /api/episodes, /images mount, /health
 │   │   ├── config.py        ← typed Settings (pydantic-settings)
-│   │   ├── api/             ← HTTP API surface (Post 5)
-│   │   │   └── episodes.py  ←   GET /api/episodes + /api/episodes/{slug}
+│   │   ├── api/             ← HTTP API surface
+│   │   │   ├── episodes.py  ←   GET /api/episodes + /api/episodes/{slug} (Post 5)
+│   │   │   ├── sessions.py  ←   POST /api/sessions + PATCH /api/sessions/{id} (Post 6)
+│   │   │   └── messages.py  ←   POST /api/sessions/{id}/messages — chat answer (Post 6)
 │   │   ├── clients/         ← provider abstractions ★
 │   │   │   ├── storage.py   ←   Storage + LocalStorage (+ R2Storage stub)
 │   │   │   ├── embedding.py ←   EmbeddingClient + Ollama + sentence-transformers
 │   │   │   ├── chat.py      ←   ChatClient + Ollama + Anthropic
 │   │   │   ├── vision.py    ←   VisionClient + JsonFileVisionClient (used in Post 4)
 │   │   │   └── __init__.py  ←   the factory
+│   │   ├── core/
+│   │   │   └── prompts.py   ← PAGE_MODE_SYSTEM + render_system_prompt (Post 6) ★
+│   │   ├── retrieval/
+│   │   │   └── service.py   ← RetrievalService + the spoiler filter (Post 6) ★
+│   │   ├── orchestration/
+│   │   │   └── chat.py      ← ChatOrchestrator.answer — retrieve → prompt → model (Post 6) ★
 │   │   └── db/
 │   │       ├── models.py    ← 10 SQLAlchemy 2.0 typed models
 │   │       ├── session.py   ← async engine + session factory
 │   │       └── seed.py      ← 31-character canonical roster
-│   └── tests/               ← test_storage.py, test_embedding.py, test_episodes_api.py
+│   └── tests/               ← test_storage.py, test_embedding.py, test_episodes_api.py, test_retrieval.py
 ├── frontend/                ← React + Vite + TypeScript flipbook UI (Post 5)
 │   ├── package.json
 │   ├── vite.config.ts       ← dev proxy for /api and /images
@@ -82,9 +90,9 @@ pepper-carrot-companion-workshop/
 └── data/                    ← gitignored — Postgres bind mount + downloaded episodes
 ```
 
-★ = the most architecturally important code. Read these first when changing model behavior. They are the topic of Post 3.
+★ = the most architecturally important code. Read these first when changing model behavior. The `clients/` provider abstractions are the topic of Post 3; the `retrieval/` + `orchestration/` + `core/prompts.py` chat layer is the topic of Post 6.
 
-**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): `app/orchestration/` and `app/retrieval/` (Post 6), `app/core/prompts.py` (Post 8), the chat panel and world-graph overlay in `frontend/src/components/` (Posts 7 and 9), the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10).
+**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): the streaming chat panel and world-graph overlay in `frontend/src/components/` (Posts 7 and 9), `WIKI_MODE_SYSTEM` / `SUGGESTIONS_SYSTEM` in `app/core/prompts.py` plus wiki-mode retrieval (Post 7), the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10).
 
 ---
 
@@ -92,7 +100,9 @@ pepper-carrot-companion-workshop/
 
 ### 1. Provider abstraction is mandatory
 
-**Never** import `anthropic`, `openai`, `chromadb`, `boto3`, or `ollama` SDKs directly outside of `backend/app/clients/`. Every external service goes through an interface. This is what makes local→cloud migration trivial.
+**Never** import a swappable provider SDK — `anthropic`, `openai`, `boto3`, or `ollama` — directly outside of `backend/app/clients/`. Every model and storage provider goes through an interface, and that is what makes local→cloud migration trivial.
+
+The one deliberate exception is **ChromaDB**. It's the single vector store, not a provider with a local/cloud alternative to swap between, so it isn't hidden behind a `clients/` Protocol. The `chromadb` SDK is imported in exactly two places — `backend/app/retrieval/service.py` (read side) and `ingestion/chroma_writer.py` (write side) — and nowhere else. Knowing *what deserves an abstraction and what doesn't* is part of the design story: three things change between local and cloud (chat, embeddings, image storage), so those three are abstracted; the vector store doesn't, so it isn't.
 
 ```python
 # YES
@@ -110,11 +120,23 @@ When asked to add a new provider, the change is: add a new implementation class 
 
 ### 2. Spoiler safety is enforced at the data layer *(active from Post 6)*
 
-Retrieval queries **always** filter by `episode_number <= current_episode AND page_number <= current_page`. This is non-negotiable. Do not rely on prompt instructions to enforce this — the retrieval layer must structurally exclude future content. The rule is documented here because the schema is already in place; the enforcing code lives in `backend/app/retrieval/service.py`, which lands in Post 6.
+Retrieval queries **always** filter by the reader's position before ranking. The boundary is *lexicographic* on `(episode, page)` — an earlier episode (any page), OR the current episode up to an earlier page — **not** the flat `episode_number <= E AND page_number <= P`. The flat form is a real bug: it would drop page 20 of episode 1 while the reader is on page 3 of episode 2, even though episode 1 is fully behind them. The Chroma `where` clause:
 
-### 3. All system prompts live in `core/prompts.py` *(active from Post 8)*
+```python
+{"$or": [
+    {"episode_number": {"$lt": current_episode}},
+    {"$and": [
+        {"episode_number": current_episode},
+        {"page_number": {"$lt": current_page}},  # $lt: the current page is fed to the prompt directly
+    ]},
+]}
+```
 
-Two per-mode prompts: `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM`. Both compose shared blocks for voice, spoiler discipline, and response format. One additional prompt `SUGGESTIONS_SYSTEM` drives the follow-up-chip generation. Keep all of these as module-level constants. Never inline a prompt in a route or service.
+This is non-negotiable, and it does not rely on prompt instructions. The boundary integers come from the `chat_sessions` row (server-side reading progress), never from the user's message — so a jailbreak prompt has nothing to widen. The enforcing code is `RetrievalService._spoiler_filter` in `backend/app/retrieval/service.py`; the proof is `backend/tests/test_retrieval.py`.
+
+### 3. All system prompts live in `core/prompts.py` *(active from Post 6)*
+
+Per-mode prompts compose shared blocks for voice, spoiler discipline, and response format. Post 6 ships `PAGE_MODE_SYSTEM` (plus `render_system_prompt`). `WIKI_MODE_SYSTEM` and `SUGGESTIONS_SYSTEM` (the follow-up-chip generator) arrive with wiki mode and streaming chat in Post 7; Post 8 expands all of them with the stricter formatting rules the production prompts carry. Keep them as module-level constants. Never inline a prompt in a route or service.
 
 ### 4. Database is the source of truth, Chroma stores embeddings + IDs *(active from Post 6)*
 
@@ -134,7 +156,7 @@ Pydantic models for API I/O. SQLAlchemy 2.0 typed declarative models for DB (`Ma
 
 ### 8. Tests for retrieval logic and prompt assembly *(active from Post 6)*
 
-These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the storage layer), both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in), and the episodes API (because the relative-key → absolute-URL resolution at response time is the part the rest of the stack depends on).
+These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the storage layer), both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in), the episodes API (because the relative-key → absolute-URL resolution at response time is the part the rest of the stack depends on), and the spoiler boundary in `test_retrieval.py` (the security-critical part of Post 6 — the tests prove the filter holds even against a jailbreak query that explicitly asks for future content).
 
 ### 9. Frontend: hand-rolled types, plain fetch, view-state by `useState`
 
@@ -156,13 +178,13 @@ ollama pull qwen2.5:7b           # chat
 ollama pull bge-m3               # embeddings
 
 # Dev loops
-cd backend && uv run uvicorn app.main:app --reload    # /health + /api/episodes + /images mount
+cd backend && uv run uvicorn app.main:app --reload    # /health + episodes + sessions + chat + /images
 cd frontend && npm install && npm run dev             # http://localhost:5173 (Post 5)
 
 # Type-check, lint, smoke-test
 cd backend && uv run mypy app/   # Success: no issues found
 cd backend && uv run ruff check app/  # All checks passed!
-cd backend && uv run pytest -v   # 16 tests: storage + embeddings + episodes API
+cd backend && uv run pytest -v   # 21 tests: storage + embeddings + episodes API + spoiler boundary
 cd frontend && npm run type-check && npm run build    # tsc -b clean + Vite build
 
 # Acquire one episode (used in Post 4 ingestion)
@@ -171,6 +193,15 @@ cd ingestion && uv run python acquire.py episode \
 
 # Seed the canonical character roster
 cd backend && uv run python -m app.db.seed    # 31 characters upserted
+
+# Exercise the spoiler-safe chat pipeline (Post 6 — needs one ingested episode + backend running)
+SID=$(curl -s -X POST localhost:8000/api/sessions -H 'content-type: application/json' \
+  -d '{"episode_slug":"ep01-potion-of-flight"}' \
+  | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/json' \
+  -d '{"current_page":3}'
+curl -s -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
+  -d '{"message":"who is on this page?"}' | python -m json.tool
 ```
 
 ---
@@ -180,6 +211,8 @@ cd backend && uv run python -m app.db.seed    # 31 characters upserted
 | Need to... | Look at |
 |-----------|---------|
 | Add a new model / storage provider | `backend/app/clients/` + the factory in `__init__.py` + `backend/app/config.py` |
+| Change the spoiler filter / retrieval scope | `backend/app/retrieval/service.py` (`_spoiler_filter`) + `backend/tests/test_retrieval.py` |
+| Change how an answer is assembled (context, prompt, model call) | `backend/app/orchestration/chat.py` + the prompt in `backend/app/core/prompts.py` |
 | Inspect the SQLAlchemy data model | `backend/app/db/models.py` |
 | Read the field-by-field schema rationale | `docs/data-model.md` |
 | Read the local-first / provider / storage rationale | `docs/decisions/0001`-`0003` |
