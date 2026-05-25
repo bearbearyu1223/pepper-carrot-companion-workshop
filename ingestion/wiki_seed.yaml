@@ -1,0 +1,66 @@
+# Seed wiki articles for the Pepper&Carrot reading companion (Post 7).
+#
+# A hand-written, deliberately small slice of universe lore so wiki mode has
+# something real to retrieve. The full project scrapes and ingests the actual
+# Pepper&Carrot wiki; this workshop ships a handful of accurate stubs.
+#
+# Each article becomes one row in `wiki_articles` (keyed on `slug`) and one
+# embedded chunk in the `wiki_v1` Chroma collection. `category` and
+# `source_url` are optional. Re-running `ingest_wiki.py` is idempotent.
+#
+# Pepper & Carrot is © David Revoy, CC BY 4.0 — https://www.peppercarrot.com
+
+articles:
+  - slug: pepper
+    title: Pepper
+    category: character
+    source_url: https://www.peppercarrot.com/
+    content: |
+      Pepper is the young witch at the centre of Pepper&Carrot. She practises
+      Chaosah, the magic of chaos, and lives in a small hilltop house with her
+      ginger cat, Carrot. Curious, impulsive, and quick to improvise a potion,
+      she was raised and trained by three older Chaosah witches. Most episodes
+      follow some experiment or rivalry of hers cheerfully going sideways.
+
+  - slug: carrot
+    title: Carrot
+    category: character
+    source_url: https://www.peppercarrot.com/
+    content: |
+      Carrot is Pepper's ginger cat and constant companion. He is endlessly
+      curious and tends to be the spark that sets an episode's mishap in motion
+      — knocking over an ingredient, tasting a potion, or wandering somewhere
+      he shouldn't. Loyal and expressive, he is Pepper's foil as much as her
+      familiar.
+
+  - slug: chaosah
+    title: Chaosah
+    category: school
+    source_url: https://www.peppercarrot.com/
+    content: |
+      Chaosah is the school of chaos magic, one of the witch traditions of
+      Hereva and the one Pepper belongs to. It is among the oldest and most
+      feared of the schools, associated with death, entropy, and the unexpected.
+      Pepper was raised by three Chaosah witches — Cayenne, Thyme, and Cumin —
+      who trained her in its craft.
+
+  - slug: hippiah
+    title: Hippiah
+    category: school
+    source_url: https://www.peppercarrot.com/
+    content: |
+      Hippiah is the witch school of living things — plants, animals, and
+      growth. Where Chaosah leans on entropy, Hippiah magic nurtures and shapes
+      life, and its witches are known for gardening, farming, and creature
+      handling. It is one of several magic traditions practised across Hereva.
+
+  - slug: hereva
+    title: Hereva
+    category: place
+    source_url: https://www.peppercarrot.com/
+    content: |
+      Hereva is the world in which Pepper&Carrot takes place. Its magic is
+      organised into distinct schools or traditions — Chaosah, Hippiah, and
+      others — each tied to a domain of power and passed down among witches.
+      The setting is warm and whimsical, dotted with witch houses, markets, and
+      the occasional dragon.

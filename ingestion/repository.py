@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.vision import PageDescription
-from app.db.models import Character, Episode, Page, PageCharacter
+from app.db.models import Character, Episode, Page, PageCharacter, WikiArticle
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,40 @@ async def link_page_characters(
     for character_id in found.values():
         session.add(PageCharacter(page_id=page_id, character_id=character_id))
     await session.flush()
+
+
+async def upsert_wiki_article(
+    session: AsyncSession,
+    *,
+    slug: str,
+    title: str,
+    content: str,
+    category: str | None = None,
+    source_url: str | None = None,
+) -> WikiArticle:
+    """Insert-or-update one wiki article keyed on `slug` (Post 7).
+
+    Replaces title/content/category/source_url wholesale on each call so
+    editing `wiki_seed.yaml` and re-running picks up the change.
+    """
+    existing = await session.scalar(select(WikiArticle).where(WikiArticle.slug == slug))
+    if existing is None:
+        article = WikiArticle(
+            slug=slug,
+            title=title,
+            content=content,
+            category=category,
+            source_url=source_url,
+        )
+        session.add(article)
+    else:
+        existing.title = title
+        existing.content = content
+        existing.category = category
+        existing.source_url = source_url
+        article = existing
+    await session.flush()
+    return article
 
 
 async def upsert_episode_summary(

@@ -24,7 +24,7 @@ import chromadb
 
 from app.clients.embedding import EmbeddingClient
 from app.clients.vision import PageDescription
-from app.db.models import Page
+from app.db.models import Page, WikiArticle
 
 if TYPE_CHECKING:
     from chromadb.api.models.Collection import Collection
@@ -32,6 +32,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PAGES_COLLECTION = "pages_v1"
+WIKI_COLLECTION = "wiki_v1"
+
+
+def format_wiki_for_embedding(title: str, content: str) -> str:
+    """Render a wiki article as the canonical text we embed.
+
+    Title-then-body, the same shape the chat retrieval layer reconstructs when
+    it renders a wiki chunk — keep them aligned so query and document text
+    distributions match.
+    """
+    return f"{title}\n\n{content}"
 
 _COSINE_METADATA = {"hnsw:space": "cosine"}
 
@@ -93,6 +104,30 @@ class ChromaWriter:
         ]
 
         collection = self.get_or_create_collection(PAGES_COLLECTION)
+        collection.upsert(
+            ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas
+        )
+
+    async def upsert_wiki_articles(self, articles: list[WikiArticle]) -> None:
+        """Embed each wiki article as one chunk and upsert into `wiki_v1` (Post 7).
+
+        One chunk per article keeps the workshop simple (the full project splits
+        long articles into paragraph chunks). The metadata carries no
+        `episode_number` — wiki content is spoiler-exempt, so the retrieval
+        layer never filters it. `source_table` + `source_id` is all the
+        orchestrator needs to fetch the canonical text back from Postgres.
+        """
+        if not articles:
+            return
+
+        texts = [format_wiki_for_embedding(a.title, a.content) for a in articles]
+        embeddings = await self._embedding.embed_batch(texts)
+        ids = [str(a.id) for a in articles]
+        metadatas: list[dict[str, Any]] = [
+            {"source_table": "wiki", "source_id": str(a.id)} for a in articles
+        ]
+
+        collection = self.get_or_create_collection(WIKI_COLLECTION)
         collection.upsert(
             ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas
         )

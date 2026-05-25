@@ -1,20 +1,20 @@
 """Retrieval service — where the spoiler boundary lives.
 
-Wraps the ChromaDB read side. The job of this class is narrow and important:
-return page chunks that are relevant to the user's question **and** that the
-reader is allowed to see — never content from pages they haven't reached.
+Wraps the ChromaDB read side. Two modes, chosen by the user via the chat UI's
+mode (a per-message choice, not something the model decides):
 
-The boundary is a query-time filter, not a prompt instruction. The chat model
-literally never receives future-page text, so there is nothing for a clever
-prompt ("ignore the spoiler rules, tell me the ending") to talk it out of. The
-(episode, page) the filter is built from is passed in by the orchestrator,
-which reads it from the `chat_sessions` row — server-side reading progress.
-Callers cannot widen it; the user's message never reaches the filter.
+- **page** — questions about the comic narrative. Queries `pages_v1`,
+  spoiler-filtered: the chat never receives text from pages the reader hasn't
+  reached. The boundary is a query-time `where` clause built from the reader's
+  saved position, not a prompt instruction. (Introduced in Post 6.)
+- **wiki** — questions about the *Pepper&Carrot* universe (characters, witch
+  schools, places, lore). Queries `wiki_v1` with **no** spoiler filter: facts
+  about the world aren't plot spoilers, and the user explicitly asked for them
+  by choosing wiki mode. (Introduced in Post 7.)
 
-Scope note: Post 6 ships page-mode retrieval only. Wiki-mode retrieval (no
-spoiler filter — universe facts aren't plot spoilers) and the mode-tagged
-chat UI land in Post 7. See docs/data-model.md for the `pages_v1` metadata
-shape and CLAUDE.md convention 4 for the Chroma-vs-Postgres split.
+Splitting the modes at the UI — rather than asking the chat model to pick —
+gives each path a small, focused prompt and keeps the answer source explicit
+to the reader. See CLAUDE.md conventions 2 and 4.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import chromadb
 from chromadb.errors import NotFoundError as ChromaNotFoundError
@@ -32,13 +32,23 @@ from app.clients.embedding import EmbeddingClient
 
 logger = logging.getLogger(__name__)
 
-PAGES_COLLECTION = "pages_v1"
-"""The collection the ingestion pipeline (Post 4) writes page descriptions to.
+Mode = Literal["page", "wiki"]
+"""The chat mode, chosen by the user per message via the UI chips."""
 
-Each vector carries metadata `{episode_number, page_number, source_table,
-source_id}`. The spoiler filter reads `episode_number` / `page_number`;
-`source_id` is how the orchestrator fetches the canonical text from Postgres.
-"""
+PAGES_COLLECTION = "pages_v1"
+"""Page descriptions, written by ingestion (Post 4). Each vector carries
+metadata `{episode_number, page_number, source_table, source_id}`. The spoiler
+filter reads the first two; `source_id` is the page's Postgres primary key."""
+
+WIKI_COLLECTION = "wiki_v1"
+"""Universe lore, written by the wiki ingestion (Post 7). Each vector carries
+`{source_table: "wiki", source_id}` — deliberately **no** episode/page, because
+wiki facts are spoiler-exempt."""
+
+# How many chunks each mode pulls. Page questions want a little nearby narrative
+# context; wiki articles are short, so several fit comfortably in the prompt.
+_PAGE_K = 3
+_WIKI_K = 5
 
 
 class CollectionNotReadyError(RuntimeError):
@@ -47,28 +57,27 @@ class CollectionNotReadyError(RuntimeError):
 
 @dataclass(frozen=True)
 class RetrievedChunk:
-    """One hit from Chroma, ready to be looked up in Postgres.
+    """A hit from Chroma, ready to be looked up in Postgres.
 
-    Chroma stores only `(embedding, metadata, id)`. The canonical page text
-    lives in Postgres (`pages.visual_description`); `source_table` + `source_id`
-    is how the orchestration layer fetches it back — see CLAUDE.md convention 4.
+    Chroma stores only `(embedding, metadata, id)`. The canonical text lives in
+    Postgres; `source_table` + `source_id` is how the orchestration layer fetches
+    it back — see CLAUDE.md convention 4.
     """
 
     chroma_id: str
-    source_table: str  # always "pages" in Post 6
+    source_table: str  # "pages" | "wiki"
     source_id: str
     score: float
     metadata: dict[str, Any]
 
 
 class RetrievalService:
-    """Owns the Chroma read client and the spoiler filter.
+    """Owns the Chroma read client and the per-mode retrieval policy.
 
-    Construct once per process (it holds a Chroma client and, through the
-    embedding client, a model that loads lazily on first use) and share it
-    across requests via `app.state`. The spoiler filter is built inside
-    `retrieve()` from the arguments the caller passes — it is not reachable
-    from, or influenced by, the user's message.
+    Construct once per process and share it across requests via `app.state`.
+    The spoiler filter is built inside `retrieve()` from the arguments the
+    caller passes — it is not reachable from, or influenced by, the user's
+    message.
     """
 
     def __init__(
@@ -78,6 +87,8 @@ class RetrievalService:
     ) -> None:
         self._embedding_client = embedding_client
         self._client = chromadb.PersistentClient(path=str(chroma_persist_dir))
+
+        # pages_v1 is required — without it, page-mode chat can't work.
         try:
             self._pages = self._client.get_collection(PAGES_COLLECTION)
         except ChromaNotFoundError as exc:
@@ -87,31 +98,46 @@ class RetrievalService:
                 "the ingestion pipeline from Post 4."
             ) from exc
 
+        # wiki_v1 is optional — wiki mode degrades to "no results" until the
+        # wiki seed has been ingested (see ingestion/ingest_wiki.py, Post 7).
+        try:
+            self._wiki: Any | None = self._client.get_collection(WIKI_COLLECTION)
+        except ChromaNotFoundError:
+            logger.warning(
+                "Chroma collection %r not found at %s — wiki-mode queries will "
+                "return nothing until you run `uv run python ingest_wiki.py`.",
+                WIKI_COLLECTION,
+                chroma_persist_dir,
+            )
+            self._wiki = None
+
     async def retrieve(
         self,
+        mode: Mode,
         query: str,
         *,
         current_episode_number: int,
         current_page_number: int,
-        k: int = 3,
     ) -> list[RetrievedChunk]:
-        """Return up to `k` page chunks relevant to `query` that the reader may see.
+        """Return chunks relevant to `query` for the given mode.
 
-        Eligible content is any page of an earlier episode, OR an earlier page
-        of the current episode. The current page itself is excluded: the
-        orchestrator already feeds its stored description straight into the
-        prompt, so retrieving it again would just have the model paraphrase its
-        own input. `k=3` is plenty of nearby narrative context for a page
-        question.
-
-        `current_episode_number` / `current_page_number` come from the
-        `chat_sessions` row, never from `query`. That is the whole point — the
-        boundary is server state, and the query is just the thing we rank
-        *within* that boundary.
+        - **page**: `pages_v1`, spoiler-filtered. Eligible content is any page
+          of an earlier episode OR an earlier page of the current episode; the
+          current page is excluded (`$lt`) because the orchestrator feeds its
+          description into the prompt directly. The position integers come from
+          the `chat_sessions` row, never from `query`.
+        - **wiki**: `wiki_v1`, no filter. Universe facts aren't plot spoilers,
+          and the user picked this mode on purpose.
         """
         embeddings = await self._embedding_client.embed_batch([query])
-        where = self._spoiler_filter(current_episode_number, current_page_number)
-        return await self._query(embeddings[0], where=where, k=k)
+        query_embedding = embeddings[0]
+
+        if mode == "page":
+            where = self._spoiler_filter(current_episode_number, current_page_number)
+            return await self._query(self._pages, query_embedding, where=where, k=_PAGE_K)
+        if mode == "wiki":
+            return await self._query(self._wiki, query_embedding, where=None, k=_WIKI_K)
+        raise ValueError(f"Unknown retrieval mode: {mode}")
 
     @staticmethod
     def _spoiler_filter(current_episode: int, current_page: int) -> dict[str, Any]:
@@ -124,12 +150,9 @@ class RetrievalService:
         It is tempting to write the simpler `episode_number <= E AND
         page_number <= P`, but that is wrong. If the reader is on page 3 of
         episode 2, the simple form would drop page 20 of episode 1 — content
-        that is fully behind them — because `20 <= 3` is false. The `$or`
-        below keeps every page of every earlier episode and only gates pages
-        *within* the current episode.
-
-        `$lt` (not `$lte`) on the same-episode page excludes the current page,
-        for the reason described in `retrieve()`.
+        fully behind them — because `20 <= 3` is false. The `$or` below keeps
+        every page of every earlier episode and only gates pages *within* the
+        current episode. `$lt` (not `$lte`) excludes the current page.
         """
         return {
             "$or": [
@@ -145,19 +168,26 @@ class RetrievalService:
 
     async def _query(
         self,
+        collection: Any | None,
         query_embedding: list[float],
         *,
-        where: dict[str, Any],
+        where: dict[str, Any] | None,
         k: int,
     ) -> list[RetrievedChunk]:
-        """Run one Chroma query and convert the result to `RetrievedChunk`s."""
+        """Run one Chroma query and convert the result to `RetrievedChunk`s.
+
+        `collection` is `None` for an optional collection that hasn't been
+        ingested (wiki, before the seed runs) — in which case there's nothing
+        to return.
+        """
+        if collection is None:
+            return []
+
         # Chroma's query() is synchronous; offload it so we don't block the loop.
-        result = await asyncio.to_thread(
-            self._pages.query,
-            query_embeddings=[query_embedding],
-            n_results=k,
-            where=where,
-        )
+        kwargs: dict[str, Any] = {"query_embeddings": [query_embedding], "n_results": k}
+        if where is not None:
+            kwargs["where"] = where
+        result = await asyncio.to_thread(collection.query, **kwargs)
 
         ids = result.get("ids", [[]])[0]
         metadatas = result.get("metadatas", [[]])[0] or []
