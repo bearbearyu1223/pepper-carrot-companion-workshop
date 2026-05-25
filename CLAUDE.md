@@ -203,7 +203,7 @@ cd ingestion && uv run python ingest_wiki.py    # 5 articles → wiki_articles +
 # Stream a chat answer over SSE (Post 7 — needs one ingested episode + backend running)
 SID=$(curl -s -X POST localhost:8000/api/sessions -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
-  | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/json' \
   -d '{"current_page":3}'
 curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \

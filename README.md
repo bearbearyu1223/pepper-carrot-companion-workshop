@@ -288,7 +288,7 @@ uv run uvicorn app.main:app --reload
 # /health, /api/episodes, /api/episodes/{slug}, and /images all mounted.
 
 # Quick API check
-curl -s http://localhost:8000/api/episodes | python -m json.tool
+curl -s http://localhost:8000/api/episodes | python3 -m json.tool
 # Should list one episode with page_count = 3 and an absolute cover_image_url.
 
 # Terminal 2 — Vite dev server
@@ -325,7 +325,7 @@ Prefer the terminal? The same endpoint streams Server-Sent Events:
 SID=$(curl -s -X POST http://localhost:8000/api/sessions \
   -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
-  | python -c 'import sys, json; print(json.load(sys.stdin)["session_id"])')
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["session_id"])')
 curl -s -X PATCH http://localhost:8000/api/sessions/$SID \
   -H 'content-type: application/json' -d '{"current_page":3}'
 
