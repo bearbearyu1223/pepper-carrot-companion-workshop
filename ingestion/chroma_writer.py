@@ -104,6 +104,12 @@ class ChromaWriter:
         ]
 
         collection = self.get_or_create_collection(PAGES_COLLECTION)
+        # Idempotent re-ingestion: clear this episode's existing chunks first.
+        # `upsert` keys on `str(page.id)`, so if a re-run gives the pages new
+        # UUIDs (e.g. after a DB reset), the old vectors would otherwise linger
+        # as stale duplicates and crowd the spoiler-filtered top-k. Deleting by
+        # `episode_number` first makes a re-run replace the episode cleanly.
+        collection.delete(where={"episode_number": episode_number})
         collection.upsert(
             ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas
         )
