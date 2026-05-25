@@ -1,26 +1,24 @@
 """FastAPI application entrypoint.
 
-Minimal version for the workshop-stage starter (Posts 2 + 3). Exposes a
-`/health` endpoint and — when STORAGE_BACKEND=local — mounts the
-LocalStorage root at the URL prefix that `LocalStorage.url_for()`
-advertises, so images written through the Storage Protocol can be
-fetched by the browser.
+Wires up middleware, mounts the episodes router, and handles startup/shutdown
+of the SQLAlchemy async engine.
 
-The full project mounts five API routers, a chat orchestrator, and a
-retrieval service on top of this scaffold; they land in later posts and
-live in a different repository.
+This is the Post 5 state of the workshop starter: episodes list + detail,
+plus the local-images static-files mount from Post 3. The chat orchestrator,
+retrieval service, sessions, and world-graph routes land in later posts and
+live in the full project repository.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
-from app.config import get_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,12 +26,27 @@ logging.basicConfig(
     force=True,
 )
 
+from app.api import episodes  # noqa: E402
+from app.config import get_settings  # noqa: E402
+from app.db.session import close_engine, init_engine  # noqa: E402
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialize the async DB engine on startup, dispose it on shutdown."""
+    del app  # not used in this stage of the build
+    settings = get_settings()
+    init_engine(settings.database_url)
+    yield
+    await close_engine()
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="Pepper&Carrot Reading Companion — Workshop Starter",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -43,6 +56,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # API routes (Post 5).
+    app.include_router(episodes.router, prefix="/api/episodes", tags=["episodes"])
 
     # Local image serving. Mount path is derived from `local_image_url_prefix`
     # so the backend serves files at exactly the URL that

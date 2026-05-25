@@ -21,6 +21,28 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     """Top-level settings. Set values via environment variables or a .env file."""
 
+    # `model_config` is a magic attribute name pydantic v2 (and pydantic-settings)
+    # reads at class-definition time to configure how Settings() loads its values.
+    # No application code references it — pydantic itself consumes it. Each
+    # argument below configures one piece of load behavior:
+    #
+    # - env_file: anchored to repo root via _PROJECT_ROOT so the same Settings
+    #     class loads identically whether the process starts from the repo root,
+    #     backend/, ingestion/, or anywhere else. Without anchoring, the relative
+    #     path would resolve against CWD, giving three different effective .env
+    #     locations depending on where uvicorn / pytest / ingest.py was launched.
+    # - env_file_encoding: defensive UTF-8 pin. Without it, the system locale
+    #     decides — usually UTF-8 on macOS/Linux, Windows-1252 on Windows — and
+    #     non-ASCII values in .env (e.g. an accented password) parse differently
+    #     across developers' machines.
+    # - case_sensitive=False: lets POSTGRES_USER (uppercase, Unix env-var
+    #     convention) in .env map to the postgres_user field (lowercase, Python
+    #     attribute convention). Without it, every .env line would have to be
+    #     written lowercase, which looks wrong in a shell context.
+    # - extra="ignore": tolerate keys that .env carries for other consumers —
+    #     notably VITE_API_BASE_URL, which Vite reads but Python doesn't. Without
+    #     this, the unknown key would raise ValidationError on construction and
+    #     the backend wouldn't boot.
     model_config = SettingsConfigDict(
         env_file=_PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

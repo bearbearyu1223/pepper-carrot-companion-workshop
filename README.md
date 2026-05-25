@@ -1,13 +1,14 @@
 # pepper-carrot-companion-workshop
 
-Companion code for the first four posts of the **Pepper & Carrot AI-powered flipbook** series. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts.
+Companion code for the first five posts of the **Pepper & Carrot AI-powered flipbook** series. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts.
 
 - **Post 1 — [When Your Chunks Are Comic Pages](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-trailer/)** *(series introduction; no code)*
 - **Post 2 — [Setting Up the Workshop](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/)** *(Postgres, Ollama, FastAPI scaffold, first Alembic migration, one episode on disk)*
 - **Post 3 — [Provider Abstractions](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-provider-abstractions/)** *(`Storage` / `EmbeddingClient` / `ChatClient` Protocols, the factory, a `LocalStorage` end-to-end loop, and `OllamaEmbeddingClient` + `SentenceTransformersEmbeddingClient` producing real 1024-dim vectors)*
 - **Post 4 — [Claude Skills as an Ingestion Tool](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-claude-skill-ingestion/)** *(the `ingest-from-images` Claude Code skill + the Python pipeline that lands one episode's worth of pages into Postgres + ChromaDB + LocalStorage)*
+- **Post 5 — [From Database to Browser](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-rest-api-flipbook/)** *(two typed FastAPI routes that resolve relative storage keys into absolute URLs at response time, plus a React + Vite + StPageFlip frontend with single-page and two-page-spread modes)*
 
-Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, world graph, cloud deploy) build on top of this scaffold in a separate repository.
+Subsequent posts (Post 6 onwards — RAG layer, streaming chat, world graph, cloud deploy) build on top of this scaffold in a separate repository.
 
 ## What's in here
 
@@ -22,8 +23,10 @@ Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, wor
 │   │   ├── env.py
 │   │   └── versions/
 │   └── app/
-│       ├── main.py             # /health + /images StaticFiles
+│       ├── main.py             # lifespan, CORS, /api/episodes, /images StaticFiles, /health
 │       ├── config.py           # typed Settings, loads .env
+│       ├── api/                # HTTP API surface (Post 5)
+│       │   └── episodes.py     #   GET /api/episodes + /api/episodes/{slug}
 │       ├── clients/            # the four Protocols + their implementations (Post 3)
 │       │   ├── storage.py      #   Storage + LocalStorage (+ R2Storage stub)
 │       │   ├── embedding.py    #   EmbeddingClient + Ollama + sentence-transformers
@@ -33,6 +36,21 @@ Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, wor
 │           ├── models.py       # 10 SQLAlchemy 2.0 typed tables
 │           ├── session.py      # async engine + session factory
 │           └── seed.py         # 31-character canonical roster
+├── frontend/                   # React + Vite + StPageFlip flipbook UI (Post 5)
+│   ├── package.json
+│   ├── vite.config.ts          # dev proxy for /api and /images
+│   ├── tsconfig.json
+│   ├── index.html
+│   └── src/
+│       ├── App.tsx             # picker ↔ reader view-switch
+│       ├── main.tsx
+│       ├── api/
+│       │   ├── client.ts       # listEpisodes + getEpisode
+│       │   └── types.ts        # hand-rolled TS mirrors of Pydantic models
+│       ├── components/
+│       │   ├── EpisodePicker.tsx
+│       │   └── Flipbook.tsx    # StPageFlip wrapped via a ref + cleanup
+│       └── styles/global.css
 ├── .claude/
 │   └── skills/
 │       └── ingest-from-images/ # the Claude Code skill (Post 4)
@@ -47,7 +65,7 @@ Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, wor
 │   ├── episode_loader.py       # validates metadata.yaml + lists page files
 │   ├── repository.py           # async DB upsert helpers
 │   └── chroma_writer.py        # pages_v1 embedding writes
-└── tests/                      # smoke tests for LocalStorage + both embedding clients
+└── tests/                      # smoke tests for LocalStorage + embeddings + episodes API
 ```
 
 ## Prerequisites
@@ -55,7 +73,7 @@ Subsequent posts (Post 5 onwards — REST API, frontend flipbook, RAG layer, wor
 - macOS or Linux (Windows users: use WSL2). The commands assume a Unix shell.
 - **~10 GB free disk** (Ollama models are heavy: `qwen2.5:7b` ≈ 4.7 GB, `bge-m3` ≈ 1.2 GB; plus sentence-transformers cache).
 - **≥ 16 GB RAM** (24 GB+ unlocks the optional `qwen2.5:14b` chat model).
-- [Docker](https://www.docker.com/products/docker-desktop/), [`uv`](https://github.com/astral-sh/uv), [Node 20+](https://nodejs.org/) *(only needed for later posts)*, and [Ollama](https://ollama.com/download).
+- [Docker](https://www.docker.com/products/docker-desktop/), [`uv`](https://github.com/astral-sh/uv), [Node 20+](https://nodejs.org/) *(required from Post 5 onward — the frontend uses Vite + React)*, and [Ollama](https://ollama.com/download).
 
 ## Setup, mapped to the blog posts
 
@@ -234,13 +252,43 @@ ls data/images/episodes/ep01-potion-of-flight/pages/
 
 If all three queries return non-empty results, the episode is fully ingested. See [Post 4](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-claude-skill-ingestion/) for the design walkthrough.
 
+### 10. Run the episodes API + flipbook frontend (Post 5)
+
+With one episode ingested, surface it in a browser.
+
+```bash
+# Terminal 1 — FastAPI backend
+cd backend
+uv run uvicorn app.main:app --reload
+# /health, /api/episodes, /api/episodes/{slug}, and /images all mounted.
+
+# Quick API check
+curl -s http://localhost:8000/api/episodes | python -m json.tool
+# Should list one episode with page_count = 3 and an absolute cover_image_url.
+
+# Terminal 2 — Vite dev server
+cd frontend
+npm install            # first time only (~5 s)
+npm run dev            # http://localhost:5173
+```
+
+Open <http://localhost:5173>. You should see a hero, the episode card, and — on click — a real page-flipping flipbook with single-page or two-page-spread rendering depending on the window orientation. Drag a corner to flip; the page-indicator pill in the header tracks where you are.
+
+Verify the API smoke tests pass alongside the storage and embedding ones:
+
+```bash
+cd backend && uv run pytest -v        # 16 passed
+cd frontend && npm run type-check && npm run build
+```
+
+See [Post 5](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-rest-api-flipbook/) for the architectural walkthrough — particularly the part about composing absolute URLs from relative storage keys at API response time, which is the seam that makes the local → R2 swap a config change.
+
 ## A few things this repo intentionally does *not* include
 
-- **Frontend / flipbook UI** (Post 5+ adds it).
-- **API routers** beyond `/health` and `/images` (Post 5 wires episodes / pages, Post 6+ wires chat).
 - **Chat orchestration & retrieval pipeline** (Post 6+).
+- **Streaming chat panel + suggestion chips** in the frontend (Post 7+).
 - **Wiki + world-graph ingestion paths** (Posts 6 and 9). The `ingest.py` here covers only the episode path; wiki/world-graph helpers were trimmed for clarity.
-- **The `extract-world-graph` Claude Code skill** (Post 9).
+- **The `extract-world-graph` Claude Code skill + world-graph overlay UI** (Post 9).
 - **Cloud deploy** (Modal / Fly / R2 / Neon) — Post 10.
 
 Some of `backend/pyproject.toml`'s dependencies (`chromadb`, `boto3`, `pillow`, `blurhash`) are listed because they're used in this workshop scope or by later phases. The lockfile is committed so installs are byte-reproducible.

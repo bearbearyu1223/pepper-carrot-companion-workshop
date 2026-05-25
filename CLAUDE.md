@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) and [Post 3](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-provider-abstractions/) of the blog series, and nothing else. The full project repository (frontend, ingestion pipeline, chat orchestrator, world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., `core/prompts.py`, `app/retrieval/`, the world graph, ChromaDB usage) belong to Posts 4–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
+> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through [Post 5](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-rest-api-flipbook/) (REST API + flipbook frontend) of the blog series, and nothing else. The full project repository (chat orchestrator, world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., `core/prompts.py`, `app/retrieval/`, the world graph) belong to Posts 6–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
 
 ---
 
@@ -23,7 +23,7 @@ This is a **portfolio / demo project**. Optimize for clarity, quality, and a cle
 
 ## Architecture (one paragraph)
 
-A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, retrieves vector chunks from ChromaDB (Post 6), fetches images from local storage (cloud later), and calls model providers (local Ollama by default for chat + embeddings; Anthropic API as a swap-in). A React + StPageFlip frontend (Post 5+) renders the flipbook and a chat panel. An offline ingestion script (Post 4) populates Postgres + Chroma + the image store from raw episode assets. Page descriptions are produced by the `ingest-from-images` Claude Code skill (Post 4). Three things are abstracted behind interfaces because they change between local and cloud: chat provider, embedding provider, and image storage. **The workshop starter implements those three interfaces plus the data model and Alembic migrations.**
+A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, retrieves vector chunks from ChromaDB (Post 6), fetches images from local storage (cloud later), and calls model providers (local Ollama by default for chat + embeddings; Anthropic API as a swap-in). A React + StPageFlip frontend (Post 5) renders the flipbook; the chat panel and world-graph overlay are added in Posts 7 and 9 in the full project. An offline ingestion script (Post 4) populates Postgres + Chroma + the image store from raw episode assets. Page descriptions are produced by the `ingest-from-images` Claude Code skill (Post 4). Three things are abstracted behind interfaces because they change between local and cloud: chat provider, embedding provider, and image storage. **The workshop starter implements those three interfaces, the data model and Alembic migrations, the offline ingestion pipeline, and a typed REST surface plus a flipbook reader UI.**
 
 ---
 
@@ -32,7 +32,7 @@ A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, re
 ```
 pepper-carrot-companion-workshop/
 ├── CLAUDE.md                ← you are here
-├── README.md                ← human-facing setup guide, mapped to Posts 2 & 3
+├── README.md                ← human-facing setup guide, mapped to Posts 2–5
 ├── docker-compose.yml       ← postgres + pgadmin
 ├── .env.example             ← copy to .env and fill in
 ├── docs/
@@ -42,8 +42,10 @@ pepper-carrot-companion-workshop/
 │   ├── pyproject.toml + uv.lock
 │   ├── alembic.ini + alembic/    ← env.py + initial-schema + world-graph migrations
 │   ├── app/
-│   │   ├── main.py          ← FastAPI scaffold: /health + /images mount only
+│   │   ├── main.py          ← FastAPI app: lifespan, CORS, /api/episodes, /images mount, /health
 │   │   ├── config.py        ← typed Settings (pydantic-settings)
+│   │   ├── api/             ← HTTP API surface (Post 5)
+│   │   │   └── episodes.py  ←   GET /api/episodes + /api/episodes/{slug}
 │   │   ├── clients/         ← provider abstractions ★
 │   │   │   ├── storage.py   ←   Storage + LocalStorage (+ R2Storage stub)
 │   │   │   ├── embedding.py ←   EmbeddingClient + Ollama + sentence-transformers
@@ -54,15 +56,35 @@ pepper-carrot-companion-workshop/
 │   │       ├── models.py    ← 10 SQLAlchemy 2.0 typed models
 │   │       ├── session.py   ← async engine + session factory
 │   │       └── seed.py      ← 31-character canonical roster
-│   └── tests/               ← test_storage.py, test_embedding.py
+│   └── tests/               ← test_storage.py, test_embedding.py, test_episodes_api.py
+├── frontend/                ← React + Vite + TypeScript flipbook UI (Post 5)
+│   ├── package.json
+│   ├── vite.config.ts       ← dev proxy for /api and /images
+│   ├── tsconfig.json
+│   ├── index.html
+│   └── src/
+│       ├── App.tsx          ← picker ↔ reader view-switch
+│       ├── main.tsx
+│       ├── api/
+│       │   ├── client.ts    ← listEpisodes + getEpisode
+│       │   └── types.ts     ← hand-rolled TS mirrors of the Pydantic models
+│       ├── components/
+│       │   ├── EpisodePicker.tsx
+│       │   └── Flipbook.tsx ← StPageFlip wrapped in React via a ref
+│       └── styles/global.css
 ├── ingestion/
-│   └── acquire.py           ← peppercarrot.com episode downloader (Post 2 step)
+│   ├── acquire.py           ← peppercarrot.com episode downloader (Post 2 step)
+│   ├── ingest.py            ← Post 4 Stage 2 orchestrator
+│   ├── images.py            ← Pillow image variants + blurhash + dominant color
+│   ├── episode_loader.py    ← validates metadata.yaml + lists page files
+│   ├── repository.py        ← async DB upsert helpers
+│   └── chroma_writer.py     ← pages_v1 embedding writes
 └── data/                    ← gitignored — Postgres bind mount + downloaded episodes
 ```
 
 ★ = the most architecturally important code. Read these first when changing model behavior. They are the topic of Post 3.
 
-**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): `app/api/` (Post 5), `app/orchestration/` and `app/retrieval/` (Post 6), `app/core/prompts.py` (Post 8), `frontend/` (Post 5+), the `ingest-from-images` and `extract-world-graph` Claude Code skills (Posts 4 and 9), Modal / Fly / R2 infra (Post 10).
+**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): `app/orchestration/` and `app/retrieval/` (Post 6), `app/core/prompts.py` (Post 8), the chat panel and world-graph overlay in `frontend/src/components/` (Posts 7 and 9), the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10).
 
 ---
 
@@ -112,7 +134,11 @@ Pydantic models for API I/O. SQLAlchemy 2.0 typed declarative models for DB (`Ma
 
 ### 8. Tests for retrieval logic and prompt assembly *(active from Post 6)*
 
-These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the starter) and both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in).
+These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the storage layer), both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in), and the episodes API (because the relative-key → absolute-URL resolution at response time is the part the rest of the stack depends on).
+
+### 9. Frontend: hand-rolled types, plain fetch, view-state by `useState`
+
+`frontend/src/api/types.ts` mirrors the Pydantic response models in `backend/app/api/episodes.py`. Keep them in sync by hand — at two endpoints the cost of an `openapi-typescript` generator is greater than the cost of maintaining ~30 lines. (Revisit if the API surface crosses ~6 routes.) `frontend/src/api/client.ts` is plain `fetch` returning `Promise<T>`; deferring to a query library is appropriate when caching, dedup, or focus-refetch start mattering, but isn't yet. The picker ↔ reader switch is a single `useState` in `App.tsx`; introduce `react-router-dom` only when deep links to a specific page become a real feature.
 
 ---
 
@@ -130,12 +156,14 @@ ollama pull qwen2.5:7b           # chat
 ollama pull bge-m3               # embeddings
 
 # Dev loops
-cd backend && uv run uvicorn app.main:app --reload    # /health + /images mount
+cd backend && uv run uvicorn app.main:app --reload    # /health + /api/episodes + /images mount
+cd frontend && npm install && npm run dev             # http://localhost:5173 (Post 5)
 
 # Type-check, lint, smoke-test
 cd backend && uv run mypy app/   # Success: no issues found
 cd backend && uv run ruff check app/  # All checks passed!
-cd backend && uv run pytest -v   # 13 tests: storage + both embedding clients
+cd backend && uv run pytest -v   # 16 tests: storage + embeddings + episodes API
+cd frontend && npm run type-check && npm run build    # tsc -b clean + Vite build
 
 # Acquire one episode (used in Post 4 ingestion)
 cd ingestion && uv run python acquire.py episode \
@@ -157,6 +185,9 @@ cd backend && uv run python -m app.db.seed    # 31 characters upserted
 | Read the local-first / provider / storage rationale | `docs/decisions/0001`-`0003` |
 | Change DB schema | `backend/app/db/models.py` + new Alembic migration via `uv run alembic revision --autogenerate -m "..."` |
 | Verify the FastAPI scaffold boots | `uv run uvicorn app.main:app --reload`, then `curl http://localhost:8000/health` |
+| Add or change an API route | `backend/app/api/` — Pydantic response models declared inline next to the router; resolve relative storage keys through `Storage.url_for()` in the handler |
+| Add or change a frontend component | `frontend/src/components/` — keep components small, lift state to `App.tsx`. `frontend/src/api/types.ts` must mirror the Pydantic models by hand |
+| Verify the frontend boots | `cd frontend && npm run dev`, open <http://localhost:5173> — relies on Vite's `/api` and `/images` proxy to the backend |
 
 ---
 
