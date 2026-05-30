@@ -15,7 +15,11 @@ dicts as it goes:
 
 The events are framed as SSE by the route (`api/messages.py`); this module only
 decides their shape. Post 6 answered in one non-streaming call; Post 7 turns
-that into the token stream above and adds the chips.
+that into the token stream above and adds the chips. Post 8 adds the
+`_strip_markdown` helper that scrubs `**bold**`, `### headers`, `- bullets`
+and friends out of every piece of text on its way into the prompt — small
+chat models mirror whatever formatting they see in context, so removing the
+markers at the source is what keeps replies as plain conversational prose.
 """
 
 from __future__ import annotations
@@ -73,6 +77,41 @@ _SUGGESTIONS_SCHEMA: dict[str, Any] = {
     "required": ["page_chip", "wiki_chip"],
     "additionalProperties": False,
 }
+
+
+# Markdown-stripping. The page descriptions written by the `ingest-from-images`
+# skill and the wiki seed articles are both markdown-heavy at the source — they
+# carry `**bold**` for proper nouns, `### headers`, `- bullets`, and so on.
+# Small chat models mirror whatever formatting they see in context, so an essay
+# question reliably comes back as a four-section essay. We strip the formatting
+# characters before the model sees them; the text content survives, only the
+# markers disappear. The frontend separately renders any markdown the model
+# *does* emit as a safety net (Post 8), so the discipline is in both places.
+_MARKDOWN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\*\*([^*\n]+?)\*\*"), r"\1"),                # **bold**
+    (re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)"), r"\1"),       # *italic*
+    (re.compile(r"__([^_\n]+?)__"), r"\1"),                    # __bold__
+    (re.compile(r"(?<!_)_([^_\n]+?)_(?!_)"), r"\1"),           # _italic_
+    (re.compile(r"`([^`\n]+?)`"), r"\1"),                      # `code`
+    (re.compile(r"^#{1,6}\s+", re.MULTILINE), ""),             # # headers
+    (re.compile(r"^\s*[-*•]\s+", re.MULTILINE), ""),           # - bullets
+    (re.compile(r"^\s*\d+\.\s+", re.MULTILINE), ""),           # 1. numbered
+    (re.compile(r"^\s*>\s?", re.MULTILINE), ""),               # > blockquotes
+    (re.compile(r"^\s*-{3,}\s*$", re.MULTILINE), ""),          # --- rules
+    (re.compile(r"\n{3,}"), "\n\n"),                           # collapse blank runs
+)
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting so the chat model sees plain prose.
+
+    Applied to every piece of text that ends up in the user-turn prompt:
+    `episode.plot_summary`, `page.visual_description`, `page.ocr_text`, each
+    retrieved page's description, and each retrieved wiki article's content.
+    """
+    for pattern, replacement in _MARKDOWN_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text.strip()
 
 
 class SessionNotFoundError(RuntimeError):
@@ -273,7 +312,7 @@ class ChatOrchestrator:
                 .options(selectinload(models.Page.characters))
             )
             for page in (await db.execute(page_stmt)).scalars():
-                description = page.visual_description or ""
+                description = _strip_markdown(page.visual_description or "")
                 if page.characters:
                     names = ", ".join(sorted(c.name for c in page.characters))
                     description = f"Featuring {names}. {description}"
@@ -285,8 +324,10 @@ class ChatOrchestrator:
             )
             for article in (await db.execute(wiki_stmt)).scalars():
                 # title + body, so attribution and content are both available.
+                # Wiki seed articles are markdown-heavy at source — strip the
+                # formatting so the model doesn't mirror it in the answer.
                 text_lookup[("wiki", str(article.id))] = (
-                    f"{article.title}\n\n{article.content}"
+                    f"{article.title}\n\n{_strip_markdown(article.content)}"
                 )
 
         return [
@@ -345,7 +386,7 @@ class ChatOrchestrator:
         model can attribute facts to the right page."""
         if episode.plot_summary:
             parts.append("=== About this episode ===")
-            parts.append(episode.plot_summary)
+            parts.append(_strip_markdown(episode.plot_summary))
             parts.append("")
 
         if len(pages) == 2:
@@ -364,12 +405,14 @@ class ChatOrchestrator:
                 names = ", ".join(sorted(c.name for c in page.characters))
                 parts.append(f"Characters on this page: {names}")
             parts.append(
-                page.visual_description or "(no description available for this page)"
+                _strip_markdown(page.visual_description)
+                if page.visual_description
+                else "(no description available for this page)"
             )
             if page.ocr_text:
                 parts.append("")
                 parts.append("Dialogue on this page:")
-                parts.append(page.ocr_text)
+                parts.append(_strip_markdown(page.ocr_text))
             if page.mood_tags:
                 parts.append(f"Mood: {', '.join(page.mood_tags)}")
 

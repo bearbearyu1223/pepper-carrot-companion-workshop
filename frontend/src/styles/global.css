@@ -486,6 +486,33 @@ a { color: var(--accent); }
   border-bottom-left-radius: 4px;
 }
 
+/* Post 8: the assistant bubble renders model output through react-markdown
+   as a safety net for any markdown that leaks past the system prompt. Tone
+   down the browser defaults so a stray `### header` or `- bullet` reads as
+   part of the bubble, not as a document. */
+.chat-markdown { white-space: normal; }
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0 0 0.5rem; }
+.chat-markdown p:last-child { margin-bottom: 0; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3,
+.chat-markdown h4, .chat-markdown h5, .chat-markdown h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.4rem 0 0.2rem;
+  font-family: inherit;
+}
+.chat-markdown ul, .chat-markdown ol { margin: 0.3rem 0 0.5rem; padding-left: 1.2rem; }
+.chat-markdown li { margin: 0.1rem 0; }
+.chat-markdown code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  font-size: 0.85em;
+  background: var(--parchment-edge);
+  padding: 0 0.2em;
+  border-radius: 3px;
+}
+.chat-markdown a { color: var(--accent); }
+
 /* Follow-up suggestion chips — each tagged with the mode it fires in. */
 .suggestion-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .suggestion-chip {

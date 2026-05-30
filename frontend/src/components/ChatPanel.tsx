@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { streamMessage } from '../api/client';
 import type { ChatMessage, Mode, Suggestion } from '../api/types';
 
@@ -132,7 +134,21 @@ export function ChatPanel({ sessionId, currentPage, isSpread }: ChatPanelProps) 
         {messages.map((m) => (
           <div key={m.id} className={`chat-msg chat-msg--${m.role}`}>
             <div className="chat-bubble">
-              {m.content || (streaming ? '…' : '')}
+              {m.role === 'assistant' && m.content ? (
+                // Safety net for Post 8: the system prompt asks for plain
+                // prose, but a 7B model under pressure will occasionally
+                // emit `### headers`, `**bold**`, or `- bullets` anyway.
+                // Rendering markdown turns that ugly raw output into
+                // something readable; remark-gfm covers tables and
+                // strikethrough if the model reaches for them.
+                <div className="chat-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {m.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                m.content || (streaming ? '…' : '')
+              )}
             </div>
             {m.role === 'assistant' && m.suggestions && (
               <SuggestionChips

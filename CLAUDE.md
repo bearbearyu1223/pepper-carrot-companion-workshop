@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 7** (streaming chat + schema-constrained suggestion chips) of the blog series, and nothing else. The full project repository (world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., the world-graph overlay, the hardened production prompts, cloud infra) belong to Posts 8–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
+> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 8** (prompt hardening + markdown safety net) of the blog series, and nothing else. The full project repository (world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., the world-graph overlay, cloud infra) belong to Posts 9–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
 
 ---
 
@@ -95,7 +95,7 @@ pepper-carrot-companion-workshop/
 
 ★ = the most architecturally important code. Read these first when changing model behavior. The `clients/` provider abstractions are the topic of Post 3; the `retrieval/` + `orchestration/` + `core/prompts.py` chat layer is the topic of Post 6 (retrieval + the spoiler boundary) and Post 7 (streaming + chips).
 
-**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): the world-graph overlay in `frontend/src/components/` and the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10). The hardened production prompts (Post 8) expand the existing `core/prompts.py` in place.
+**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): the world-graph overlay in `frontend/src/components/` and the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10).
 
 ---
 
@@ -139,7 +139,7 @@ This is non-negotiable, and it does not rely on prompt instructions. The boundar
 
 ### 3. All system prompts live in `core/prompts.py` *(active from Post 6)*
 
-Per-mode prompts compose shared blocks for voice, spoiler discipline, and response format. `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM` (Posts 6–7) share `_SHARED_VOICE` and `_SPOILER_DISCIPLINE`; `SUGGESTIONS_SYSTEM` (Post 7) drives the follow-up-chip generation, with the chip *shape* enforced by `_SUGGESTIONS_SCHEMA` in `orchestration/chat.py`. Post 8 expands all three with the stricter formatting rules the production prompts carry. Keep them as module-level constants. Never inline a prompt in a route or service.
+Per-mode prompts compose shared blocks for voice, spoiler discipline, grounding contract, anti-recitation, and a strict response-format block. `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM` share `_SHARED_VOICE`, `_SPOILER_DISCIPLINE`, `_GROUNDING_CONTRACT`, and `_RESPONSE_FORMAT`; `PAGE_MODE_SYSTEM` adds `_PAGE_ANTI_RECITATION`; `WIKI_MODE_SYSTEM` adds `_WIKI_OUTPUT_DISCIPLINE`. `SUGGESTIONS_SYSTEM` drives the follow-up-chip generation, with the chip *shape* enforced by `_SUGGESTIONS_SCHEMA` in `orchestration/chat.py`. Keep them as module-level constants. Never inline a prompt in a route or service.
 
 ### 4. Database is the source of truth, Chroma stores embeddings + IDs *(active from Post 6)*
 

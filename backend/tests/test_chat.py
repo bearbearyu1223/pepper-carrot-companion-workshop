@@ -1,11 +1,13 @@
-"""Tests for the chat layer's two bug-prone seams: the suggestion-chip parser
-and the SSE event framing.
+"""Tests for the chat layer's three bug-prone seams.
 
-`_parse_suggestions` turns the model's named-slot JSON into the SSE chip array
-and drops anything that isn't a complete question. The message endpoint frames
-the orchestrator's events as Server-Sent Events. Both are tested without a real
-model — the parser is pure, and the endpoint runs against a fake orchestrator
-injected via `dependency_overrides`.
+`_parse_suggestions` turns the model's named-slot JSON into the SSE chip
+array and drops anything that isn't a complete question. `_strip_markdown`
+scrubs source markdown out of the text on its way into the prompt — Post 8's
+discipline that keeps small models from mirroring `**bold**` and `### headers`
+into their replies. The message endpoint frames the orchestrator's events as
+Server-Sent Events. All three are tested without a real model — the parsers
+are pure, and the endpoint runs against a fake orchestrator injected via
+`dependency_overrides`.
 """
 
 from __future__ import annotations
@@ -19,8 +21,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.messages import get_chat_orchestrator
 from app.db.session import get_session
 from app.main import app
-from app.orchestration.chat import _parse_suggestions
-
+from app.orchestration.chat import _parse_suggestions, _strip_markdown
 
 # ─── _parse_suggestions ───────────────────────────────────────────────────────
 
@@ -58,6 +59,47 @@ def test_parse_drops_a_truncated_chip() -> None:
 def test_parse_invalid_or_empty_returns_no_chips() -> None:
     assert _parse_suggestions("definitely not json") == []
     assert _parse_suggestions("") == []
+
+
+# ─── _strip_markdown (Post 8) ────────────────────────────────────────────────
+
+
+def test_strip_markdown_removes_inline_markers() -> None:
+    assert _strip_markdown("**Pepper** and *Carrot*") == "Pepper and Carrot"
+    assert _strip_markdown("__bold__ and _italic_") == "bold and italic"
+    assert _strip_markdown("call `embed_batch()` first") == "call embed_batch() first"
+
+
+def test_strip_markdown_removes_block_markers() -> None:
+    src = (
+        "## Scene\n"
+        "Pepper brews a potion.\n"
+        "\n"
+        "- the cauldron bubbles\n"
+        "- Carrot leans in too close\n"
+        "\n"
+        "1. she stirs widdershins\n"
+        "2. the mix turns silver\n"
+        "\n"
+        "> a quiet pop\n"
+        "---\n"
+    )
+    out = _strip_markdown(src)
+    assert "##" not in out
+    assert "- " not in out
+    assert "1. " not in out
+    assert "> " not in out
+    assert "---" not in out
+    # The text content survives — only the markers go.
+    assert "Pepper brews a potion." in out
+    assert "the cauldron bubbles" in out
+    assert "she stirs widdershins" in out
+    assert "a quiet pop" in out
+
+
+def test_strip_markdown_leaves_plain_prose_untouched() -> None:
+    plain = "Pepper and Carrot tumble through the cottage door."
+    assert _strip_markdown(plain) == plain
 
 
 # ─── SSE message endpoint ──────────────────────────────────────────────────────
