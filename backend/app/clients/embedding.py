@@ -160,3 +160,114 @@ class OllamaEmbeddingClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class VoyageEmbeddingClient:
+    """Embeddings via the Voyage AI HTTP API.
+
+    Voyage is Anthropic's recommended embeddings partner — a hosted API with
+    no infrastructure to manage, useful when the rest of the chat layer has
+    moved off Modal-hosted Ollama (CHAT_PROVIDER=anthropic) and there's no
+    local GPU to lean on for bge-m3.
+
+    The wire format is a thin POST to /embeddings with `{"input": [...],
+    "model": "voyage-3-lite"}` and `Authorization: Bearer <key>`. Response
+    shape is `{"data": [{"embedding": [...], "index": N}, ...]}` with the
+    indices guaranteed to mirror the input order — we still re-sort by
+    `index` defensively so a future API change can't silently scramble
+    vector → document alignment in the Chroma upsert.
+
+    See https://docs.voyageai.com/reference/embeddings-api for the full
+    schema, https://docs.voyageai.com/docs/embeddings for model options.
+    """
+
+    _DEFAULT_BASE_URL = "https://api.voyageai.com/v1"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._model = model
+        client_kwargs: dict[str, object] = {
+            "base_url": (base_url or self._DEFAULT_BASE_URL).rstrip("/"),
+            "timeout": httpx.Timeout(30.0),
+            "headers": {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        }
+        # `transport` is the standard httpx seam tests use to inject a fake
+        # network. Production callers leave it unset; `tests/test_embedding.py`
+        # passes `httpx.MockTransport(...)` to keep the suite offline.
+        if transport is not None:
+            client_kwargs["transport"] = transport
+        self._client = httpx.AsyncClient(**client_kwargs)  # type: ignore[arg-type]
+        self._dimension: int | None = None
+
+    @property
+    def dimension(self) -> int:
+        # Same shape as OllamaEmbeddingClient: dimension is discovered on the
+        # first successful embed call. Callers hit embed_batch first in
+        # practice; we guard the cold-access case behind a clear error so
+        # the test suite catches misuse instead of swallowing it.
+        if self._dimension is None:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(self._probe_dimension())
+            else:
+                raise RuntimeError(
+                    "VoyageEmbeddingClient.dimension accessed before any "
+                    "embed_batch call from inside a running event loop; "
+                    "call `await embed_batch([...])` first."
+                )
+        assert self._dimension is not None
+        return self._dimension
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    async def _probe_dimension(self) -> None:
+        vecs = await self._embed(["dim probe"])
+        self._dimension = len(vecs[0])
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        response = await self._client.post(
+            "/embeddings",
+            json={"input": texts, "model": self._model},
+        )
+        if response.status_code // 100 != 2:
+            body = response.text[:500]
+            raise RuntimeError(
+                f"Voyage /embeddings returned {response.status_code}: {body}"
+            )
+        data = response.json()
+        rows = data.get("data")
+        if not isinstance(rows, list) or len(rows) != len(texts):
+            raise RuntimeError(
+                f"Voyage /embeddings returned unexpected payload: {str(data)[:500]}"
+            )
+        # Re-sort by `index` so the returned order matches the input order
+        # even if Voyage ever stops guaranteeing it. The Chroma upsert in
+        # ingestion/chroma_writer.py zips (id, vec) by position; a silent
+        # reorder here would silently misalign every document.
+        ordered = sorted(rows, key=lambda row: int(row.get("index", 0)))
+        return [list(map(float, row["embedding"])) for row in ordered]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        vectors = await self._embed(texts)
+        if self._dimension is None and vectors:
+            self._dimension = len(vectors[0])
+        return vectors
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

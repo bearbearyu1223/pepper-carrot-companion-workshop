@@ -17,6 +17,7 @@ from app.clients.embedding import (
     EmbeddingClient,
     OllamaEmbeddingClient,
     SentenceTransformersEmbeddingClient,
+    VoyageEmbeddingClient,
 )
 from app.clients.storage import LocalStorage, R2Storage, Storage
 from app.clients.vision import JsonFileVisionClient, VisionClient
@@ -75,6 +76,15 @@ def get_embedding_client(settings: Settings) -> EmbeddingClient:
             base_url=settings.ollama_base_url,
             model=settings.embedding_model,
             headers=_modal_proxy_headers(settings),
+        )
+    if settings.embedding_provider == "voyage":
+        if not settings.voyage_api_key:
+            raise RuntimeError(
+                "VOYAGE_API_KEY is required when embedding_provider=voyage"
+            )
+        return VoyageEmbeddingClient(
+            api_key=settings.voyage_api_key,
+            model=settings.voyage_model,
         )
     raise ValueError(f"Unknown embedding_provider: {settings.embedding_provider}")
 

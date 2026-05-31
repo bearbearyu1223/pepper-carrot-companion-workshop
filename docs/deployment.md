@@ -424,6 +424,80 @@ external).
 
 ---
 
+## Alternative: skip Modal entirely (Anthropic + Voyage AI)
+
+The default flow puts qwen2.5:7b and bge-m3 on a Modal GPU because the
+series is *about* local-first self-hosted inference. If that constraint
+doesn't matter to you and you'd rather:
+
+- pay ~$0.10/mo for the chat layer instead of ~$5–10/mo,
+- have zero cold-start latency on the first answer,
+- and not operate a Modal endpoint at all,
+
+…the [Post 3 provider abstraction](../docs/decisions/0002-model-provider-abstraction.md)
+supports it via config alone — no code changes needed. The backend's
+`AnthropicChatClient` and the new `VoyageEmbeddingClient` ship in
+`backend/app/clients/`. The trade-off (and the cost comparison table) is
+documented in §7 of Post 10.
+
+**Three deltas from the default flow above:**
+
+1. **Skip Step 1** (`modal deploy infra/modal_ollama.py`). There is no
+   Modal endpoint to deploy.
+
+2. **Re-index Chroma locally with Voyage embeddings** before
+   `dump_seed.sh`. Voyage's vectors live in a different space than
+   bge-m3's, so existing `pages_v1` / `wiki_v1` collections need
+   rebuilding:
+
+   ```bash
+   # In your local .env, switch the embedding provider:
+   echo 'EMBEDDING_PROVIDER=voyage'  >> .env
+   echo 'VOYAGE_API_KEY=pa-...'       >> .env
+   echo 'VOYAGE_MODEL=voyage-3-lite'  >> .env
+
+   # Wipe the bge-m3 collections and re-ingest:
+   rm -rf data/chroma
+   cd ingestion && uv run python ingest.py ep01-potion-of-flight  # repeat per episode
+   uv run python ingest_wiki.py
+   ```
+
+   Postgres + R2 stay put; only Chroma rebuilds.
+
+3. **Push the alternative secrets to Fly** (in Step 5, instead of the
+   Modal + Ollama secrets):
+
+   ```bash
+   set -a && source .env.production && set +a && \
+   fly secrets set \
+     CHAT_PROVIDER="anthropic" \
+     ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+     ANTHROPIC_MODEL="$ANTHROPIC_MODEL" \
+     EMBEDDING_PROVIDER="voyage" \
+     VOYAGE_API_KEY="$VOYAGE_API_KEY" \
+     VOYAGE_MODEL="$VOYAGE_MODEL" \
+     DATABASE_URL_OVERRIDE="$DATABASE_URL_OVERRIDE" \
+     POSTGRES_RESTORE_URL="$POSTGRES_RESTORE_URL" \
+     R2_ACCOUNT_ID="$R2_ACCOUNT_ID" \
+     R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+     R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+     R2_BUCKET="$R2_BUCKET" \
+     R2_PUBLIC_URL_PREFIX="$R2_PUBLIC_URL_PREFIX" \
+     CORS_ORIGINS="$CORS_ORIGINS"
+
+   ./infra/dump_seed.sh && fly deploy
+   ```
+
+The `.env.production.example` template carries a commented-out block for
+the alternative path; uncomment it and fill in the values instead of the
+Modal block.
+
+The R2 step (Step 3) and the Neon step (Step 2) are unchanged — they're
+not provider-coupled to the chat layer. The frontend (Step 6) and the
+end-to-end test (Step 7) are also unchanged.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

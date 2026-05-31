@@ -96,7 +96,11 @@ class Settings(BaseSettings):
     # documents the provider explicitly.
     vision_provider: Literal["json"] = "json"
     chat_provider: Literal["ollama", "anthropic"] = "ollama"
-    embedding_provider: Literal["sentence-transformers", "ollama", "anthropic"] = (
+    # "anthropic" is intentionally absent — Anthropic does not ship a
+    # general-purpose embeddings API. Use "voyage" for the hosted-API path
+    # (Anthropic's recommended embeddings partner; see the alternative-deploy
+    # block in .env.production.example).
+    embedding_provider: Literal["sentence-transformers", "ollama", "voyage"] = (
         "sentence-transformers"
     )
 
@@ -118,6 +122,13 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-4-7"
+
+    # Voyage AI (embeddings — Anthropic's recommended embeddings partner).
+    # Set together with embedding_provider="voyage". voyage-3-lite is the
+    # cheapest model and adequate for retrieval at portfolio scale;
+    # voyage-3 (1024-dim) is a step up if you want better quality.
+    voyage_api_key: str | None = None
+    voyage_model: str = "voyage-3-lite"
 
     # === Backend ===
     backend_host: str = "0.0.0.0"
