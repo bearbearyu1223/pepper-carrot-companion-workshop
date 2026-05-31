@@ -259,13 +259,14 @@ async def _process_one_page(
     await storage.put(thumbnail_key, processed.thumbnail_bytes, "image/webp")
     await storage.put(original_key, processed.original_bytes, original_mime)
 
-    # Animated sources (GIF) keep their original; the static WebP variant would
-    # lose the motion. For everything else, the resized WebP keeps payloads small.
-    if processed.is_animated:
-        display_key = original_key
-    else:
-        display_key = f"{base_key}-display.webp"
-        await storage.put(display_key, processed.display_bytes, "image/webp")
+    # Always write the static, aspect-padded WebP display variant — even for
+    # animated sources. The flipbook is a portrait reading surface; an animated
+    # GIF with a panoramic aspect (ep04 page 5) renders as a tiny strip lost
+    # in vertical whitespace. The first-frame WebP, padded to portrait, fits
+    # the page slot cleanly. The original GIF stays accessible via
+    # `original_url` for callers that want the animation.
+    display_key = f"{base_key}-display.webp"
+    await storage.put(display_key, processed.display_bytes, "image/webp")
 
     # (c) load the page description (sibling .json — written by the skill).
     description = await vision.describe_page(

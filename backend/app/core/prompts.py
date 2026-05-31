@@ -134,6 +134,18 @@ following responses are FORBIDDEN:
 
 Don't refer to the notes as something the user gave you (no "your cast \
 list", no "the info you shared", no "the information provided").
+
+NEVER RECITE THE DIALOGUE BACK. When the user asks "what does X say?", "what \
+is happening in the dialogue?", or anything about the conversation on the \
+page, paraphrase it in one or two conversational sentences — do NOT quote \
+the lines verbatim, do NOT list them as bullet points, do NOT structure your \
+answer as "Page N: Panel 1: Dialogue:" with the words underneath. The \
+dialogue is in your notes so you can ground your answer, not so you can \
+read it aloud. Refer to characters and their actions, not to the page's \
+panel layout. A correct answer to "what does Pepper say to Carrot?" looks \
+like: "She gushes about him coming on his own and introduces her latest \
+brew — the Potion of Genius — then asks him to take a sip." NOT a bulleted \
+transcript of every speech bubble.
 """
 
 
