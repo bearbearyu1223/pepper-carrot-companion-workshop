@@ -513,6 +513,42 @@ a { color: var(--accent); }
 }
 .chat-markdown a { color: var(--accent); }
 
+/* Typing indicator: shown inside an assistant bubble between the moment
+   the user hits Send and the first SSE token arriving. A whimsical
+   themed phrase (chosen at submit time) plus three pulsing dots, so the
+   reader knows the witch is doing something rather than just staring
+   into the cauldron. The dot animation runs on opacity + transform so
+   it's GPU-cheap; the staggered delays give the dots a left-to-right
+   wave that reads as activity even when the panel is in the corner of
+   the eye. */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-style: italic;
+  font-family: var(--font-prose);
+}
+.typing-indicator__dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.typing-indicator__dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+  animation: typing-dot 1.2s infinite ease-in-out;
+}
+.typing-indicator__dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator__dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  30%           { opacity: 1;    transform: translateY(-2px); }
+}
+
 /* Follow-up suggestion chips — each tagged with the mode it fires in. */
 .suggestion-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .suggestion-chip {

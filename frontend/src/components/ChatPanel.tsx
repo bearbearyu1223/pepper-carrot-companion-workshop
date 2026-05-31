@@ -4,6 +4,37 @@ import remarkGfm from 'remark-gfm';
 import { streamMessage } from '../api/client';
 import type { ChatMessage, Mode, Suggestion } from '../api/types';
 
+// Whimsical placeholder phrases shown while waiting for the first SSE
+// token. qwen2.5:7b on Ollama can take a couple of seconds to warm up
+// from cold; a generic spinner would feel like a broken connection, a
+// themed phrase + bouncing dots reads as a witch actually doing something.
+// One phrase is picked at the moment the user hits Send and persists for
+// that turn so the bubble doesn't flicker between phrases on re-render.
+const THINKING_PHRASES = [
+  'Consulting the grimoire',
+  'Brewing a thought',
+  'Stirring the cauldron',
+  'Flipping through the spellbook',
+  'Asking Carrot for a second opinion',
+];
+
+function pickThinkingPhrase(): string {
+  return THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)];
+}
+
+function TypingIndicator({ phrase }: { phrase: string }) {
+  return (
+    <span className="typing-indicator" aria-label={`${phrase}…`}>
+      <span>{phrase}</span>
+      <span className="typing-indicator__dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+    </span>
+  );
+}
+
 // Inline so the workshop doesn't pull in an icon library. Page = open book,
 // wiki = stacked books — matching the two chip colors.
 function ModeIcon({ mode }: { mode: Mode }) {
@@ -72,6 +103,10 @@ export function ChatPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // Picked once per send so the in-flight bubble's phrase is stable;
+  // initial value is the first phrase so the type is `string`, not
+  // `string | undefined`.
+  const [thinkingPhrase, setThinkingPhrase] = useState<string>(THINKING_PHRASES[0]);
   const logRef = useRef<HTMLDivElement>(null);
 
   // New episode → new session → fresh conversation.
@@ -99,6 +134,11 @@ export function ChatPanel({
 
   const sendMessage = async (text: string, mode: Mode) => {
     if (!sessionId || !text.trim() || streaming) return;
+
+    // Pick a thinking phrase for this turn. The TypingIndicator reads
+    // it as long as the assistant bubble is empty and streaming is true;
+    // it disappears the moment the first token arrives.
+    setThinkingPhrase(pickThinkingPhrase());
 
     // Optimistically append the user bubble + an empty assistant bubble we'll
     // fill token by token (matched by id).
@@ -160,7 +200,13 @@ export function ChatPanel({
         {messages.map((m) => (
           <div key={m.id} className={`chat-msg chat-msg--${m.role}`}>
             <div className="chat-bubble">
-              {m.role === 'assistant' && m.content ? (
+              {m.role === 'assistant' && m.content === '' && streaming ? (
+                // In-flight assistant bubble, no tokens yet: show the
+                // themed loading indicator so the reader knows the witch
+                // is working. The first token arriving switches us to
+                // the markdown branch.
+                <TypingIndicator phrase={thinkingPhrase} />
+              ) : m.role === 'assistant' && m.content ? (
                 // Safety net for Post 8: the system prompt asks for plain
                 // prose, but a 7B model under pressure will occasionally
                 // emit `### headers`, `**bold**`, or `- bullets` anyway.
@@ -173,7 +219,7 @@ export function ChatPanel({
                   </ReactMarkdown>
                 </div>
               ) : (
-                m.content || (streaming ? '…' : '')
+                m.content || ''
               )}
             </div>
             {m.role === 'assistant' && m.suggestions && (
