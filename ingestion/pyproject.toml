@@ -12,6 +12,8 @@ dependencies = [
     # Ingestion-specific
     "click>=8.1",
     "tqdm>=4.66",
+    # Wiki ingestion (Post 9) — parses .md files with YAML frontmatter.
+    "python-frontmatter>=1.1",
 ]
 
 [tool.uv]

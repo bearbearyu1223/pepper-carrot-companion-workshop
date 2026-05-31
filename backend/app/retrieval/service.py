@@ -45,10 +45,15 @@ WIKI_COLLECTION = "wiki_v1"
 `{source_table: "wiki", source_id}` — deliberately **no** episode/page, because
 wiki facts are spoiler-exempt."""
 
-# How many chunks each mode pulls. Page questions want a little nearby narrative
-# context; wiki articles are short, so several fit comfortably in the prompt.
+# How many chunks each mode pulls. Page questions want a little nearby
+# narrative context. Wiki used to land 5 whole multi-entity articles in
+# the prompt (Post 7), which crowded out the on-topic ones; Post 9
+# switched the wiki to summary-first (one tight ~150-word document per
+# entity, authored by the `summarize-wiki` skill) and trimmed k to 3 so
+# the prompt sees ~500 words of focused context. That's small enough that
+# Post 8's OUTPUT RULES actually hold against qwen2.5:7b.
 _PAGE_K = 3
-_WIKI_K = 5
+_WIKI_K = 3
 
 
 class CollectionNotReadyError(RuntimeError):

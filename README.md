@@ -88,8 +88,12 @@ Posts 1–4 describe building up to the Post 5 state; their snapshots are not ta
 │   ├── pyproject.toml          # Python deps for the ingestion pipeline (Post 4)
 │   ├── acquire.py              # downloads one episode from peppercarrot.com (Post 2)
 │   ├── ingest.py               # the Stage 2 episode orchestrator (Post 4)
-│   ├── ingest_wiki.py          # wiki seed → wiki_articles + wiki_v1 (Post 7)
-│   ├── wiki_seed.yaml          # hand-written seed wiki articles (Post 7)
+│   ├── ingest_wiki.py          # both wiki dirs → wiki_articles + wiki_v1 (Post 9)
+│   ├── wiki_loader.py          # parses .md + YAML frontmatter (Post 9)
+│   ├── wiki_scraper.py         # pulls upstream wiki from framagit (Post 9)
+│   ├── ingest_world_graph.py   # loads world-graph YAML pair → DB (Post 9)
+│   ├── world_graph_loader.py   # pydantic contract for the YAML (Post 9)
+│   ├── wiki_image_scraper.py   # pulls ~40 chara_/creature_ avatars from framagit (Post 9)
 │   ├── images.py               # Pillow image variants + blurhash + dominant color
 │   ├── episode_loader.py       # validates metadata.yaml + lists page files
 │   ├── repository.py           # async DB upsert helpers (pages + wiki)
@@ -312,13 +316,16 @@ cd frontend && npm run type-check && npm run build
 
 See [Post 5](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-rest-api-flipbook/) for the architectural walkthrough — particularly the part about composing absolute URLs from relative storage keys at API response time, which is the seam that makes the local → R2 swap a config change.
 
-### 11. Ingest the wiki and chat with the reader (Post 7)
+### 11. Ingest the wiki and chat with the reader (Post 7, summary-first since Post 9)
 
-First seed a little universe lore so wiki mode has something to retrieve:
+First populate wiki mode. The pipeline is summary-first: instead of embedding the raw 30 KB framagit articles, we embed ~50 hand-crafted summaries (one per world-graph entity plus a handful of lore topics), so top-3 retrieval lands ~500 words of focused context per question instead of three multi-entity articles colliding in the prompt.
 
 ```bash
 cd ingestion
-uv run python ingest_wiki.py    # 5 articles → wiki_articles + wiki_v1
+uv run python wiki_scraper.py             # pull framagit wiki → data/raw/wiki-upstream/ (Post 9, source material)
+# ↓ One-shot author. Use Claude Code: /summarize-wiki  (re-run only when source material changes)
+#   It writes data/wiki-summaries/entities/<slug>.md (45 files) + topics/<slug>.md (5 files).
+uv run python ingest_wiki.py              # 50 summaries → wiki_articles + wiki_v1 (one chunk per article)
 ```
 
 Now reload <http://localhost:5173> and open an episode — a **chat panel** sits beside the flipbook. Ask about the current page and the answer streams in token by token. Click **Ask the wiki** (or a wiki suggestion chip) to ask about Hereva's lore instead. Each answer is followed by two follow-up chips — one page, one wiki — and clicking one sends the next question through that pipeline. Flip a page and the companion follows you: the flip `PATCH`es the session's `current_page`, which is what retrieval filters on.
@@ -339,7 +346,7 @@ curl -N -X POST http://localhost:8000/api/sessions/$SID/messages \
   -d '{"mode":"page","message":"who is on this page and what are they doing?"}'
 ```
 
-The `done` frame's `retrieved_doc_ids` are all from pages ≤ 3 — the spoiler boundary from [Post 6](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-spoiler-safe-rag/) still holds underneath the stream. Send `{"mode":"wiki","message":"what is Chaosah?"}` to see wiki mode answer from the seed articles instead. See Post 7 for the SSE + suggestion-chip walkthrough.
+The `done` frame's `retrieved_doc_ids` are all from pages ≤ 3 — the spoiler boundary from [Post 6](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-spoiler-safe-rag/) still holds underneath the stream. Send `{"mode":"wiki","message":"what is Chaosah?"}` to see wiki mode answer from the per-entity summaries instead. See Post 7 for the SSE + suggestion-chip walkthrough.
 
 ## A few things this repo intentionally does *not* include
 

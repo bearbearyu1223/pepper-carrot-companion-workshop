@@ -1,17 +1,15 @@
 """ChromaDB writer for the offline ingestion pipeline (workshop-starter scope).
 
 One writer instance per pipeline run. Owns a `PersistentClient`, caches the
-`pages_v1` collection ref, and exposes one upsert method.
+collection refs, and exposes upsert methods for pages (Post 6+) and wiki
+summaries (Post 9, summary-first).
 
-Embedding format note (`format_page_for_embedding`)
----------------------------------------------------
-The text we embed for a page is *exactly* the same shape as the text the chat
-orchestration layer composes for retrieval (Post 6+). If those drift, retrieval
-quality silently degrades because query and document distributions diverge.
-Both sides import this helper so they cannot drift.
-
-Wiki ingestion lives in the full project repo (later post); this starter only
-ships the page path.
+Embedding format note (`format_page_for_embedding`, `format_wiki_for_embedding`)
+-------------------------------------------------------------------------------
+The text we embed is *exactly* the same shape as the text the chat
+orchestration layer composes for retrieval. If those drift, retrieval quality
+silently degrades because query and document distributions diverge. Both sides
+import these helpers so they cannot drift.
 """
 
 from __future__ import annotations
@@ -115,25 +113,48 @@ class ChromaWriter:
         )
 
     async def upsert_wiki_articles(self, articles: list[WikiArticle]) -> None:
-        """Embed each wiki article as one chunk and upsert into `wiki_v1` (Post 7).
+        """Embed each wiki summary as a single document in `wiki_v1`.
 
-        One chunk per article keeps the workshop simple (the full project splits
-        long articles into paragraph chunks). The metadata carries no
-        `episode_number` — wiki content is spoiler-exempt, so the retrieval
-        layer never filters it. `source_table` + `source_id` is all the
-        orchestrator needs to fetch the canonical text back from Postgres.
+        With the summary-first architecture (Post 9, see `summarize-wiki`
+        skill), each article is already a tight ~100-300 word summary
+        focused on one entity or topic. One chunk per article keeps the
+        embedding signal concentrated — top-3 retrieval lands three
+        focused summaries totaling ~500 words, small enough that Post 8's
+        OUTPUT RULES actually hold against qwen2.5:7b.
+
+        Each chunk's `source_id` is the article UUID; the runtime
+        resolves it back to a Postgres row to fetch the full content
+        (which, with summaries, is just the same text we embedded).
+
+        Wiki content is spoiler-exempt: the metadata carries no
+        `episode_number`, and the retrieval layer never filters it.
+
+        The embedded text prepends the article title as a topic anchor
+        so queries like "Tell me about Truffel" align with the summary
+        document for that entity.
         """
         if not articles:
             return
 
-        texts = [format_wiki_for_embedding(a.title, a.content) for a in articles]
-        embeddings = await self._embedding.embed_batch(texts)
-        ids = [str(a.id) for a in articles]
+        ids = [str(article.id) for article in articles]
+        texts = [
+            format_wiki_for_embedding(article.title, article.content)
+            for article in articles
+        ]
         metadatas: list[dict[str, Any]] = [
-            {"source_table": "wiki", "source_id": str(a.id)} for a in articles
+            {"source_table": "wiki", "source_id": str(article.id)}
+            for article in articles
         ]
 
+        embeddings = await self._embedding.embed_batch(texts)
+
         collection = self.get_or_create_collection(WIKI_COLLECTION)
+        # Drop any stale chunks for these articles before upserting. With
+        # paragraph chunking gone, this also clears any leftover `::pN`
+        # ids written by earlier runs of the pipeline.
+        for article in articles:
+            collection.delete(where={"source_id": str(article.id)})
+
         collection.upsert(
             ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas
         )

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import click
 from repository import upsert_world_entity, upsert_world_relationship
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import (
 from world_graph_loader import load_world_graph
 
 from app.config import get_settings
-from app.db.models import WorldRelationship
+from app.db.models import WorldEntity, WorldRelationship
 
 logger = logging.getLogger("ingest_world_graph")
 
@@ -71,25 +71,49 @@ async def _run(source: Path) -> None:
         engine, expire_on_commit=False, class_=AsyncSession
     )
 
+    yaml_slugs = {e.slug for e in entities}
+
     try:
         async with session_factory() as session:
+            # Relationships first: blanket delete-then-insert. The YAML is the
+            # source of truth, so an edge removed from the YAML must disappear
+            # from the DB on the next ingest. The unique constraint on
+            # (source_id, target_id, kind) means the upsert helper handles
+            # the insert side; we wipe first to handle the "edge removed"
+            # case AND to clear the FK that would block the orphan-entity
+            # delete below.
+            await session.execute(delete(WorldRelationship))
+            await session.flush()
+
+            # Orphan entities: anything in the DB whose slug isn't in the
+            # current YAML is no-longer-canonical and must be deleted. The
+            # YAML is the source of truth for entities too — same discipline
+            # as relationships. Without this, a renamed slug leaves the old
+            # row sitting in the graph forever (e.g. `squirrels-end` after
+            # a rename to `squirrel-s-end`), which then appears as a ghost
+            # duplicate node with broken-looking edges in the frontend.
+            db_slugs = (
+                await session.scalars(select(WorldEntity.slug))
+            ).all()
+            orphan_slugs = [s for s in db_slugs if s not in yaml_slugs]
+            if orphan_slugs:
+                await session.execute(
+                    delete(WorldEntity).where(WorldEntity.slug.in_(orphan_slugs))
+                )
+                await session.flush()
+                click.echo(
+                    f"  ✕ pruned {len(orphan_slugs)} orphan entit"
+                    f"{'y' if len(orphan_slugs) == 1 else 'ies'}: "
+                    f"{', '.join(sorted(orphan_slugs))}"
+                )
+
             # Entities: upsert by slug. Existing rows are mutated in place so
-            # foreign keys (character_id, world_relationships.{source,target}_id)
-            # stay valid across re-runs.
+            # FKs (character_id) stay stable across re-runs.
             slug_to_id: dict[str, object] = {}
             for entity_data in entities:
                 entity = await upsert_world_entity(session, entity_data)
                 slug_to_id[entity_data.slug] = entity.id
                 click.echo(f"  • entity   {entity_data.slug:<20} ({entity_data.kind})")
-
-            # Relationships: delete-then-insert by-entity, not by-pair. The YAML
-            # is the source of truth, so a relationship that's been removed from
-            # the YAML should disappear from the DB on the next ingest. The
-            # unique constraint on (source_id, target_id, kind) means the
-            # upsert helper handles the insert side; we wipe first to handle
-            # the "edge removed from YAML" case.
-            await session.execute(delete(WorldRelationship))
-            await session.flush()
 
             for rel_data in relationships:
                 await upsert_world_relationship(session, rel_data, slug_to_id)  # type: ignore[arg-type]
