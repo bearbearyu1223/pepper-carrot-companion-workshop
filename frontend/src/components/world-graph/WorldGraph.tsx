@@ -64,19 +64,15 @@ const EDGE_COLOR_NEUTRAL = 'rgb(110, 80, 50)';
 
 // Imperative auto-fit. Mounts inside ReactFlowProvider so it can grab
 // the fitView function via the hook. Re-fits whenever the node-id set
-// changes — small focus subsets get centered without the user
-// pan-and-zooming to find them.
-function FitOnNodesChange({
-  nodeIds,
-  enabled,
-}: {
-  nodeIds: string[];
-  enabled: boolean;
-}) {
+// changes — small focus subsets get centered without the user pan-and-
+// zooming to find them, and the whole-world view fits its bounding box
+// instead of stranding nodes off the right edge of the panel at the
+// default viewport offset.
+function FitOnNodesChange({ nodeIds }: { nodeIds: string[] }) {
   const rf = useReactFlow();
   const key = nodeIds.join('|');
   useEffect(() => {
-    if (!enabled || nodeIds.length === 0) return;
+    if (nodeIds.length === 0) return;
     // requestAnimationFrame gives react-flow a tick to lay out the
     // nodes before we measure them — calling fitView synchronously can
     // fit to an empty bounding box and leave the panel showing nothing.
@@ -84,7 +80,7 @@ function FitOnNodesChange({
       rf.fitView({ padding: 0.25, duration: 350, maxZoom: 1.0 });
     });
     return () => cancelAnimationFrame(handle);
-  }, [key, enabled, rf, nodeIds.length]);
+  }, [key, rf, nodeIds.length]);
   return null;
 }
 
@@ -427,7 +423,7 @@ export function WorldGraph({
                 borderRadius: 6,
               }}
             />
-            <FitOnNodesChange nodeIds={nodeIdList} enabled={mode === 'focus'} />
+            <FitOnNodesChange nodeIds={nodeIdList} />
           </ReactFlow>
         </ReactFlowProvider>
         {selectedEntity && (
