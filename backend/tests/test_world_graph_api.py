@@ -286,6 +286,65 @@ async def test_page_past_end_is_clamped(override_deps: None) -> None:
     assert {n["slug"] for n in body1["nodes"]} == {"a", "b", "c", "d"}
 
 
+# ─── focus mode + right_page ────────────────────────────────────────────
+
+
+async def test_focus_falls_back_to_full_when_no_characters_on_page(
+    override_deps: None,
+) -> None:
+    """The seeded test fixture has no PageCharacter rows, so the focus
+    seed comes back empty. The route should silently fall back to the
+    spoiler-filtered full subset rather than return an empty panel.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(
+            "/api/world-graph?episode_slug=ep02&page=4&mode=focus"
+        )
+    body = r.json()
+    # Same as full mode at the same cursor: A, B, C visible; D not yet.
+    assert {n["slug"] for n in body["nodes"]} == {"a", "b", "c"}
+
+
+async def test_right_page_uses_rightmost_for_spoiler_cursor(
+    override_deps: None,
+) -> None:
+    """`right_page` is the spoiler cursor — the rightmost visible page
+    on a two-page spread. `page=4&right_page=6` at episode 2 makes the
+    cursor (2, 6), which doesn't unlock anything D-shaped (debut (2,7))
+    yet but should be accepted without error.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(
+            "/api/world-graph?episode_slug=ep02&page=4&right_page=6"
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert {n["slug"] for n in body["nodes"]} == {"a", "b", "c"}
+
+
+async def test_right_page_below_left_is_silently_corrected(
+    override_deps: None,
+) -> None:
+    """A transient flipbook ordering glitch can send `right_page < page`.
+    The route collapses to single-page mode (right = left) rather than
+    400-ing the response. Cursor (2, 5) now lets A→C member_of (debut
+    (2, 5)) appear.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(
+            "/api/world-graph?episode_slug=ep02&page=5&right_page=2"
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert {n["slug"] for n in body["nodes"]} == {"a", "b", "c"}
+    # At (2, 5): friend_of (1,5), B→C member_of (2,3), AND A→C member_of (2,5).
+    edge_kinds = sorted(e["kind"] for e in body["edges"])
+    assert edge_kinds == ["friend_of", "member_of", "member_of"]
+
+
 # Silence pytest's "unused fixture" warning when seeded_session is consumed
 # transitively via override_deps; the import is the dependency hint.
 _ = uuid

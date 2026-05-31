@@ -115,3 +115,9 @@ export interface WorldGraph {
   nodes: WorldNode[];
   edges: WorldEdge[];
 }
+
+// Two response modes from /api/world-graph:
+//   'full'  — every spoiler-safe entity (API-stable default).
+//   'focus' — on-page characters + 1-hop structural neighbors (coven,
+//             home, familiar). Default in the overlay UI.
+export type WorldGraphMode = 'full' | 'focus';

@@ -122,6 +122,10 @@ export function App() {
         <WorldGraphOverlay
           episodeSlug={selectedEpisode.slug}
           page={currentPage}
+          // Landscape spread → pass the right page so focus mode seeds
+          // from both visible pages, and the spoiler cursor uses the
+          // rightmost page.
+          rightPage={showSpread ? rightPage : undefined}
           onAskInWiki={(entityName) => {
             // Close the overlay first so the chat panel is visible when
             // the answer streams in; a new object identity fires the send.

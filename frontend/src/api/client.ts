@@ -13,6 +13,7 @@ import type {
   Session,
   Suggestion,
   WorldGraph,
+  WorldGraphMode,
 } from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -54,11 +55,26 @@ export const api = {
   // Spoiler-filtered snapshot of the world graph for the reader's current
   // position. The cursor lives in the URL — the API clamps it to the
   // episode's real page count and the filter is a SQL row-value compare,
-  // not a prompt instruction (Post 9).
-  fetchWorldGraph: (episodeSlug: string, page: number): Promise<WorldGraph> =>
-    get<WorldGraph>(
-      `/api/world-graph?episode_slug=${encodeURIComponent(episodeSlug)}&page=${page}`,
-    ),
+  // not a prompt instruction (Post 9). `mode='focus'` returns on-page
+  // characters + 1-hop neighbors; `mode='full'` returns the whole spoiler-
+  // safe world. `rightPage` is the right page of a two-page spread (so the
+  // landscape reader's focus seed unions both visible pages).
+  fetchWorldGraph: (
+    episodeSlug: string,
+    page: number,
+    mode: WorldGraphMode = 'full',
+    rightPage?: number,
+  ): Promise<WorldGraph> => {
+    const params = new URLSearchParams({
+      episode_slug: episodeSlug,
+      page: String(page),
+      mode,
+    });
+    if (rightPage !== undefined && rightPage !== page) {
+      params.set('right_page', String(rightPage));
+    }
+    return get<WorldGraph>(`/api/world-graph?${params.toString()}`);
+  },
 };
 
 // The events `streamMessage` yields. `done` carries the suggestion chips.

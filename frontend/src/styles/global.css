@@ -848,3 +848,101 @@ a { color: var(--accent); }
 @media (max-width: 720px) {
   .world-overlay__panel { width: 100vw; }
 }
+
+/* ─── World-graph toolbar: kind filter chips + mode toggle pill ───── */
+
+.world-graph__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  background: rgba(251, 242, 221, 0.6);
+  border-bottom: 1px solid var(--parchment-edge);
+}
+
+.world-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.world-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--parchment);
+  border: 1px solid var(--parchment-edge);
+  color: var(--fg);
+  transition: background 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, opacity 0.15s ease;
+}
+.world-filter-chip__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-color);
+}
+.world-filter-chip__count {
+  font-weight: 500;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: 0.1rem;
+}
+.world-filter-chip--active {
+  border-color: var(--chip-color);
+  background: rgba(251, 242, 221, 0.95);
+}
+.world-filter-chip--off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.world-filter-chip--off .world-filter-chip__count { color: var(--muted); }
+.world-filter-chip:hover { opacity: 0.85; }
+
+.world-mode-toggle {
+  display: inline-flex;
+  background: var(--parchment);
+  border: 1px solid var(--parchment-edge);
+  border-radius: 999px;
+  padding: 0.15rem;
+}
+.world-mode-toggle__pill {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.world-mode-toggle__pill--active {
+  background: var(--accent);
+  color: #fff;
+}
+.world-mode-toggle__pill:not(.world-mode-toggle__pill--active):hover {
+  color: var(--accent);
+}
+
+/* Overlay header layout: title + flourish on the left, close button on the right. */
+.world-overlay__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--accent);
+}
+.world-overlay__flourish {
+  color: var(--wiki);
+  flex: 0 0 auto;
+  opacity: 0.85;
+}

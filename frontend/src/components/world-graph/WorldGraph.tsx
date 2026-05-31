@@ -1,60 +1,116 @@
-// React-flow canvas: curated-layout avatar nodes + low-key bezier edges,
-// with a soft fade-in animation when newly-revealed nodes/edges debut on
-// the current spread (Post 9 polish — the user's pick).
+// React-flow canvas: avatar nodes at curated positions + low-key bezier
+// edges that brighten on the selected node's incidents. Two modes:
 //
-// The fade-in implementation is intentionally CSS-driven rather than a
-// state-machine: when a new graph snapshot arrives, we diff its ids
-// against the previous snapshot's ids, mark anything new as `new=true`,
-// and let CSS `@keyframes` handle the animation. The diff is cheap; the
-// animation is GPU-cheap; the parent doesn't have to know.
+//   focus — only on-page characters + 1-hop structural neighbors. The
+//           viewport auto-fits whenever the node set changes so the
+//           handful of relevant entities sits centered. Layout is
+//           computed fresh (kind-grid) rather than reusing the
+//           full-world coordinates, where most quadrants would be empty.
+//   full  — every spoiler-safe entity. Curated YAML positions are
+//           honored; the user pans/zooms freely.
+//
+// A kind-filter bar above the canvas lets the reader narrow the visible
+// kinds (characters only, places only, …). Newly-revealed entities and
+// edges fade in softly when the reader flips into new territory — the
+// diff happens in JS; the animation is pure CSS @keyframes.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Edge,
   type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../../api/client';
 import type {
+  WorldEdge,
   WorldGraph as WorldGraphData,
+  WorldGraphMode,
+  WorldKind,
   WorldNode,
 } from '../../api/types';
 import { AvatarNode, type AvatarNodeData } from './AvatarNode';
 import { InfoCard } from './InfoCard';
+import { KindFilterBar } from './KindFilterBar';
+import { edgeColorFor } from './constants';
+import { computeFocusLayout } from './focus-layout';
 
 interface WorldGraphProps {
   episodeSlug: string;
   page: number;
+  // Right page of the two-page spread; defaults to `page` for single-page
+  // mode. Focus seeding uses [page, rightPage] so a landscape reader sees
+  // the union of both pages' characters.
+  rightPage?: number;
   onAskInWiki: (entityName: string) => void;
 }
 
 const NODE_TYPES = { avatar: AvatarNode };
+const ALL_KINDS: WorldKind[] = ['character', 'creature', 'place', 'coven', 'object'];
 
-// Edge styling — bezier curves over right-angles read more like inked
-// lines than CAD'd connectors, which fits the comic's aesthetic.
-const EDGE_COLOR_DEFAULT = 'rgb(110, 80, 50)';
-const EDGE_COLOR_FOCUSED = 'var(--accent)';
-const EDGE_OPACITY_DEFAULT = 0.5;
+// Edge-styling regimes. The strokes lean a hair thicker than the
+// geometric defaults so the lines read as inked rather than CAD'd
+// against the parchment background.
+const EDGE_OPACITY_DEFAULT = 0.55;
 const EDGE_OPACITY_FOCUSED = 0.9;
 const EDGE_OPACITY_DIMMED = 0.18;
+const EDGE_STROKE_DEFAULT = 1.6;
+const EDGE_STROKE_FOCUSED = 2.25;
+const EDGE_STROKE_DIMMED = 1;
+const EDGE_COLOR_NEUTRAL = 'rgb(110, 80, 50)';
 
-export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) {
+// Imperative auto-fit. Mounts inside ReactFlowProvider so it can grab
+// the fitView function via the hook. Re-fits whenever the node-id set
+// changes — small focus subsets get centered without the user
+// pan-and-zooming to find them.
+function FitOnNodesChange({
+  nodeIds,
+  enabled,
+}: {
+  nodeIds: string[];
+  enabled: boolean;
+}) {
+  const rf = useReactFlow();
+  const key = nodeIds.join('|');
+  useEffect(() => {
+    if (!enabled || nodeIds.length === 0) return;
+    // requestAnimationFrame gives react-flow a tick to lay out the
+    // nodes before we measure them — calling fitView synchronously can
+    // fit to an empty bounding box and leave the panel showing nothing.
+    const handle = requestAnimationFrame(() => {
+      rf.fitView({ padding: 0.25, duration: 350, maxZoom: 1.0 });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [key, enabled, rf, nodeIds.length]);
+  return null;
+}
+
+export function WorldGraph({
+  episodeSlug,
+  page,
+  rightPage,
+  onAskInWiki,
+}: WorldGraphProps) {
   const [data, setData] = useState<WorldGraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Default to 'focus' — show what's on this page, not the whole universe.
+  const [mode, setMode] = useState<WorldGraphMode>('focus');
+  // Active kinds — start all-on. Toggle via KindFilterBar.
+  const [activeKinds, setActiveKinds] = useState<Set<WorldKind>>(
+    () => new Set(ALL_KINDS),
+  );
 
-  // Track the previous snapshot's ids so we can diff and mark newly-
-  // revealed entities for the fade-in. Stored in a ref because we only
-  // want to update on a real refetch, not on selection changes.
+  // ─── Fade-in diff (Post 9 polish) ──────────────────────────────────
+  // Track the previous snapshot's ids so we can mark newly-revealed
+  // entities + edges with a one-render class that drives a CSS keyframe.
   const previousIdsRef = useRef<{ nodes: Set<string>; edges: Set<string> }>({
     nodes: new Set(),
     edges: new Set(),
   });
-  // Anything in here gets `world-node--new` / `world-edge--new` for one
-  // render cycle, which is enough for the CSS animation to play once.
   const [newlyRevealed, setNewlyRevealed] = useState<{
     nodes: Set<string>;
     edges: Set<string>;
@@ -64,11 +120,9 @@ export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) 
     let cancelled = false;
     setError(null);
     api
-      .fetchWorldGraph(episodeSlug, page)
+      .fetchWorldGraph(episodeSlug, page, mode, rightPage)
       .then((res) => {
         if (cancelled) return;
-        // Diff: anything in the new snapshot that wasn't in the previous
-        // snapshot is freshly revealed by a page flip — fade it in.
         const prev = previousIdsRef.current;
         const newNodes = new Set(
           res.nodes.filter((n) => !prev.nodes.has(n.id)).map((n) => n.id),
@@ -81,14 +135,14 @@ export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) 
           edges: new Set(res.edges.map((e) => e.id)),
         };
         setData(res);
-        // First load (prev.nodes is empty): treat everything as
-        // already-known so we don't animate every node on first paint.
-        // The fade-in is reserved for the debut-on-flip moment.
-        if (prev.nodes.size === 0) {
-          setNewlyRevealed({ nodes: new Set(), edges: new Set() });
-        } else {
-          setNewlyRevealed({ nodes: newNodes, edges: newEdges });
-        }
+        // First load (prev.nodes empty): treat everything as already-known
+        // so we don't animate every node on first paint. The fade-in is
+        // reserved for the debut-on-flip moment.
+        setNewlyRevealed(
+          prev.nodes.size === 0
+            ? { nodes: new Set(), edges: new Set() }
+            : { nodes: newNodes, edges: newEdges },
+        );
         setSelectedNodeId(null);
       })
       .catch((err) => {
@@ -100,79 +154,196 @@ export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) 
     return () => {
       cancelled = true;
     };
-  }, [episodeSlug, page]);
+  }, [episodeSlug, page, mode, rightPage]);
 
-  // Reset the previous-ids snapshot when the episode changes — entities
-  // shared across episodes shouldn't animate when the reader switches
-  // books.
+  // Episode change resets the previous-ids snapshot so entities shared
+  // across episodes don't animate when the reader switches books.
   useEffect(() => {
     previousIdsRef.current = { nodes: new Set(), edges: new Set() };
   }, [episodeSlug]);
 
-  // Translate API rows → react-flow Node[] / Edge[]. The curated layout
-  // from the YAML drives positions; selection state and the
-  // newly-revealed mark ride on the node class.
+  // Pre-filter the API response by active kinds. Edges are kept only
+  // when both endpoints survive the kind filter — same shape as the
+  // backend's spoiler filter, just layered for client-side narrowing.
+  const filtered = useMemo<{ nodes: WorldNode[]; edges: WorldEdge[] }>(() => {
+    if (!data) return { nodes: [], edges: [] };
+    const visibleNodes = data.nodes.filter((n) => activeKinds.has(n.kind));
+    const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+    const visibleEdges = data.edges.filter(
+      (e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target),
+    );
+    return { nodes: visibleNodes, edges: visibleEdges };
+  }, [data, activeKinds]);
+
+  // Per-kind counts for the filter bar. Use the unfiltered API response
+  // so toggling a chip off doesn't make the chip vanish.
+  const counts = useMemo(() => {
+    const out: Record<WorldKind, number> = {
+      character: 0,
+      creature: 0,
+      place: 0,
+      coven: 0,
+      object: 0,
+    };
+    for (const n of data?.nodes ?? []) out[n.kind] = (out[n.kind] ?? 0) + 1;
+    return out;
+  }, [data]);
+
+  // Focus mode computes a fresh kind-grid layout so the visible subset
+  // doesn't have to live with the curated full-world coordinates (where
+  // most quadrants are empty when only a handful of nodes are in scope).
+  // Full mode keeps the YAML positions — the compass-point arrangement
+  // is the artistic point of the explorer view.
+  const focusPositions = useMemo(
+    () =>
+      mode === 'focus'
+        ? computeFocusLayout(filtered.nodes, filtered.edges)
+        : null,
+    [filtered.nodes, filtered.edges, mode],
+  );
+
+  // Translate API rows → react-flow Node[]. The fade-in class is mounted
+  // for one render cycle so the CSS keyframe plays once per debut.
   const nodes: Node<AvatarNodeData>[] = useMemo(() => {
-    if (!data) return [];
-    return data.nodes.map((entity) => ({
-      id: entity.id,
-      type: 'avatar',
-      position: { x: entity.x, y: entity.y },
-      data: { entity },
-      draggable: false,
-      selected: entity.id === selectedNodeId,
-      // Layered onto the class so CSS @keyframes can drive the animation
-      // without React managing per-node timers.
-      className: newlyRevealed.nodes.has(entity.id) ? 'world-node--new' : '',
-    }));
-  }, [data, selectedNodeId, newlyRevealed.nodes]);
+    return filtered.nodes.map((entity) => {
+      const pos = focusPositions?.get(entity.id) ?? { x: entity.x, y: entity.y };
+      return {
+        id: entity.id,
+        type: 'avatar',
+        position: pos,
+        data: { entity },
+        // Curated positions are the point in full mode; in focus we
+        // computed positions from kind. Either way: no dragging.
+        draggable: false,
+        selected: entity.id === selectedNodeId,
+        className: newlyRevealed.nodes.has(entity.id) ? 'world-node--new' : '',
+      };
+    });
+  }, [filtered.nodes, focusPositions, selectedNodeId, newlyRevealed.nodes]);
+
+  // Position lookup so edges can pick the handle side that produces the
+  // most natural bezier given the source/target geometry. Computed from
+  // the same node array we hand to ReactFlow so the lookup never lags.
+  const positionById = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const n of nodes) map.set(n.id, n.position);
+    return map;
+  }, [nodes]);
 
   const edges: Edge[] = useMemo(() => {
-    if (!data) return [];
-    return data.edges.map((edge) => {
+    // Labels are always on in focus mode (the canvas is small enough to
+    // read them) and on-demand in full mode (a wall of labels otherwise).
+    // A focused edge always shows its label regardless of mode.
+    const labelsAlwaysOn = mode === 'focus';
+    return filtered.edges.map((edge) => {
       const focused =
         selectedNodeId !== null &&
         (edge.source === selectedNodeId || edge.target === selectedNodeId);
       const dimmed = selectedNodeId !== null && !focused;
+      const showLabel = focused || labelsAlwaysOn;
+      const kindColor = edgeColorFor(edge.kind);
+
+      // Pick handles based on the dominant axis between source and
+      // target: a mostly-horizontal pair gets right→left handles (clean
+      // side-to-side curve), a mostly-vertical pair gets bottom→top
+      // (clean north–south curve). Falls back to bottom→top when either
+      // node hasn't been positioned yet.
+      const sp = positionById.get(edge.source);
+      const tp = positionById.get(edge.target);
+      let sourceHandle = 's-bottom';
+      let targetHandle = 't-top';
+      if (sp && tp) {
+        const dx = tp.x - sp.x;
+        const dy = tp.y - sp.y;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          sourceHandle = dx > 0 ? 's-right' : 's-left';
+          targetHandle = dx > 0 ? 't-left' : 't-right';
+        } else {
+          sourceHandle = dy > 0 ? 's-bottom' : 's-top';
+          targetHandle = dy > 0 ? 't-top' : 't-bottom';
+        }
+      }
+
+      const baseClass = newlyRevealed.edges.has(edge.id) ? 'world-edge--new' : '';
+
       return {
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: 'default', // bezier
-        label: focused ? edge.kind.replace(/_/g, ' ') : undefined,
-        labelShowBg: focused,
+        sourceHandle,
+        targetHandle,
+        // Bezier curves (the 'default' edge type) read more like hand-
+        // inked lines than the right-angle smoothstep — better fit for
+        // the comic's aesthetic.
+        type: 'default',
+        label: showLabel ? edge.kind.replace(/_/g, ' ') : undefined,
+        labelShowBg: showLabel,
+        // Parchment pill keeps the label legible whether it's drawn
+        // over an avatar circle, a coven halo, or empty paper.
         labelBgStyle: {
           fill: 'rgba(251, 242, 221, 0.92)',
-          stroke: 'var(--accent)',
-          strokeWidth: 1,
-        },
-        labelStyle: {
-          fill: 'var(--accent)',
-          fontSize: 10,
-          fontWeight: 600,
-          fontFamily: 'var(--font-ui)',
+          stroke: focused ? kindColor : 'rgba(120, 90, 60, 0.25)',
+          strokeWidth: focused ? 1.25 : 0.75,
         },
         labelBgPadding: [4, 6] as [number, number],
         labelBgBorderRadius: 6,
+        labelStyle: {
+          fill: focused ? kindColor : 'rgb(120, 90, 60)',
+          fontSize: focused ? 10 : 9,
+          fontWeight: focused ? 600 : 500,
+          fontFamily: 'var(--font-ui)',
+          letterSpacing: '0.01em',
+          opacity: focused ? 1 : dimmed ? 0.35 : 0.85,
+        },
         style: {
-          stroke: focused ? EDGE_COLOR_FOCUSED : EDGE_COLOR_DEFAULT,
-          strokeWidth: focused ? 2.25 : 1.5,
+          stroke: focused ? kindColor : EDGE_COLOR_NEUTRAL,
           opacity: focused
             ? EDGE_OPACITY_FOCUSED
             : dimmed
               ? EDGE_OPACITY_DIMMED
               : EDGE_OPACITY_DEFAULT,
+          strokeWidth: focused
+            ? EDGE_STROKE_FOCUSED
+            : dimmed
+              ? EDGE_STROKE_DIMMED
+              : EDGE_STROKE_DEFAULT,
           transition: 'opacity 180ms ease, stroke-width 180ms ease, stroke 180ms ease',
         },
-        className: newlyRevealed.edges.has(edge.id) ? 'world-edge--new' : '',
+        className: baseClass,
       } satisfies Edge;
     });
-  }, [data, selectedNodeId, newlyRevealed.edges]);
+  }, [filtered.edges, selectedNodeId, mode, positionById, newlyRevealed.edges]);
 
-  const selectedEntity: WorldNode | null = useMemo(() => {
+  const selectedEntity = useMemo(() => {
     if (!data || !selectedNodeId) return null;
     return data.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [data, selectedNodeId]);
+
+  const handleToggleKind = (kind: WorldKind) => {
+    setActiveKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) {
+        // Don't allow turning off the last active kind — an empty graph
+        // is confusing to recover from.
+        if (next.size === 1) return prev;
+        next.delete(kind);
+      } else {
+        next.add(kind);
+      }
+      return next;
+    });
+    // Clear selection when the visible set changes; a stale selection
+    // renders confusingly when its node disappears.
+    setSelectedNodeId(null);
+  };
+
+  // Stable list of node ids for the auto-fit child. Identity changes
+  // when the focus subset changes (or when the user toggles a kind),
+  // which is exactly when we want to re-fit.
+  const nodeIdList = useMemo(
+    () => filtered.nodes.map((n) => n.id),
+    [filtered.nodes],
+  );
 
   if (error) {
     return (
@@ -194,14 +365,49 @@ export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) 
 
   return (
     <div className="world-graph">
+      <div className="world-graph__toolbar">
+        <KindFilterBar
+          active={activeKinds}
+          counts={counts}
+          onToggle={handleToggleKind}
+        />
+        <div
+          className="world-mode-toggle"
+          role="group"
+          aria-label="Graph view mode"
+        >
+          <button
+            type="button"
+            className={`world-mode-toggle__pill ${
+              mode === 'focus' ? 'world-mode-toggle__pill--active' : ''
+            }`}
+            onClick={() => setMode('focus')}
+            aria-pressed={mode === 'focus'}
+            title="Show entities on this page and their immediate connections"
+          >
+            This page
+          </button>
+          <button
+            type="button"
+            className={`world-mode-toggle__pill ${
+              mode === 'full' ? 'world-mode-toggle__pill--active' : ''
+            }`}
+            onClick={() => setMode('full')}
+            aria-pressed={mode === 'full'}
+            title="Show every entity introduced up to this page"
+          >
+            Whole world
+          </button>
+        </div>
+      </div>
       <div className="world-graph__canvas">
         <ReactFlowProvider>
           <ReactFlow
             nodes={nodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
-            fitView
-            fitViewOptions={{ padding: 0.25, maxZoom: 1.0 }}
+            fitView={false}
+            defaultViewport={{ x: 280, y: 240, zoom: 0.55 }}
             minZoom={0.3}
             maxZoom={1.6}
             panOnDrag
@@ -221,6 +427,7 @@ export function WorldGraph({ episodeSlug, page, onAskInWiki }: WorldGraphProps) 
                 borderRadius: 6,
               }}
             />
+            <FitOnNodesChange nodeIds={nodeIdList} enabled={mode === 'focus'} />
           </ReactFlow>
         </ReactFlowProvider>
         {selectedEntity && (
