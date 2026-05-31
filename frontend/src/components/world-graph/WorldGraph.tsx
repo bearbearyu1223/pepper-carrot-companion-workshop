@@ -240,10 +240,14 @@ export function WorldGraph({
   }, [nodes]);
 
   const edges: Edge[] = useMemo(() => {
-    // Labels are always on in focus mode (the canvas is small enough to
-    // read them) and on-demand in full mode (a wall of labels otherwise).
-    // A focused edge always shows its label regardless of mode.
-    const labelsAlwaysOn = mode === 'focus';
+    // Show labels on every edge whenever we're using the tight computed
+    // layout — that's focus mode, AND filtered full mode (kind filter
+    // applied). Both produce a small enough canvas that the labels read
+    // cleanly. Unfiltered full mode still defers to on-click reveal,
+    // because the curated 45-node spread would otherwise become a wall
+    // of overlapping label pills. A focused edge always shows its label
+    // regardless of layout.
+    const labelsAlwaysOn = useComputedLayout;
     return filtered.edges.map((edge) => {
       const focused =
         selectedNodeId !== null &&
@@ -326,7 +330,7 @@ export function WorldGraph({
         className: baseClass,
       } satisfies Edge;
     });
-  }, [filtered.edges, selectedNodeId, mode, positionById, newlyRevealed.edges]);
+  }, [filtered.edges, selectedNodeId, useComputedLayout, positionById, newlyRevealed.edges]);
 
   const selectedEntity = useMemo(() => {
     if (!data || !selectedNodeId) return null;
