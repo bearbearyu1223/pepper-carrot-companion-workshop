@@ -185,24 +185,37 @@ export function WorldGraph({
     return out;
   }, [data]);
 
-  // Focus mode computes a fresh kind-grid layout so the visible subset
-  // doesn't have to live with the curated full-world coordinates (where
-  // most quadrants are empty when only a handful of nodes are in scope).
-  // Full mode keeps the YAML positions — the compass-point arrangement
-  // is the artistic point of the explorer view.
-  const focusPositions = useMemo(
+  // Decide which layout to use for the visible subset.
+  //
+  //   - focus mode: always compute (radial-around-hub if there's one,
+  //     kind-grid otherwise). The curated YAML coords are sparse for a
+  //     small focus set.
+  //   - full mode with NO kind filter: keep the curated YAML coords —
+  //     the compass-point arrangement is the artistic point of the
+  //     explorer view.
+  //   - full mode WITH a kind filter active: compute a tight layout
+  //     too. Without this, narrowing to e.g. "covens + places only"
+  //     leaves a few nodes scattered at their full-world coordinates
+  //     with most of the panel empty and edges so long they're barely
+  //     readable. The kind filter is a focusing affordance; the layout
+  //     should follow.
+  const useComputedLayout =
+    mode === 'focus' ||
+    (mode === 'full' && data !== null && activeKinds.size < ALL_KINDS.length);
+  const computedPositions = useMemo(
     () =>
-      mode === 'focus'
+      useComputedLayout
         ? computeFocusLayout(filtered.nodes, filtered.edges)
         : null,
-    [filtered.nodes, filtered.edges, mode],
+    [filtered.nodes, filtered.edges, useComputedLayout],
   );
 
   // Translate API rows → react-flow Node[]. The fade-in class is mounted
   // for one render cycle so the CSS keyframe plays once per debut.
   const nodes: Node<AvatarNodeData>[] = useMemo(() => {
     return filtered.nodes.map((entity) => {
-      const pos = focusPositions?.get(entity.id) ?? { x: entity.x, y: entity.y };
+      const pos =
+        computedPositions?.get(entity.id) ?? { x: entity.x, y: entity.y };
       return {
         id: entity.id,
         type: 'avatar',
@@ -215,7 +228,7 @@ export function WorldGraph({
         className: newlyRevealed.nodes.has(entity.id) ? 'world-node--new' : '',
       };
     });
-  }, [filtered.nodes, focusPositions, selectedNodeId, newlyRevealed.nodes]);
+  }, [filtered.nodes, computedPositions, selectedNodeId, newlyRevealed.nodes]);
 
   // Position lookup so edges can pick the handle side that produces the
   // most natural bezier given the source/target geometry. Computed from
@@ -303,6 +316,11 @@ export function WorldGraph({
             : dimmed
               ? EDGE_STROKE_DIMMED
               : EDGE_STROKE_DEFAULT,
+          // Keep strokes the same on-screen pixel width regardless of
+          // react-flow's zoom — without this, a fit-view that zooms out
+          // to frame a wide-spread subset shrinks the strokes to ~0.5 px
+          // and the edges disappear into the parchment.
+          vectorEffect: 'non-scaling-stroke',
           transition: 'opacity 180ms ease, stroke-width 180ms ease, stroke 180ms ease',
         },
         className: baseClass,
