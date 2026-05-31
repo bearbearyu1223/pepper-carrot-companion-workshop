@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 9** (world-graph overlay) of the blog series, and nothing else. The full project repository (cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., cloud infra, hardened production prompts) belong to Post 10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
+> **About the scope.** This repository contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 10** (cloud deploy) of the blog series — the full series, end to end, from a fresh laptop to a public URL on Cloudflare Pages + Fly + Modal + R2 + Neon. The deploy infrastructure (`Dockerfile`, `fly.toml`, `infra/`, `.env.production.example`, `docs/deployment.md`, the boto3-backed `R2Storage` implementation) lands in this repo at the `post-10` tag.
 
 ---
 
@@ -95,7 +95,7 @@ pepper-carrot-companion-workshop/
 
 ★ = the most architecturally important code. Read these first when changing model behavior. The `clients/` provider abstractions are the topic of Post 3; the `retrieval/` + `orchestration/` + `core/prompts.py` chat layer is the topic of Post 6 (retrieval + the spoiler boundary) and Post 7 (streaming + chips).
 
-**Files mentioned in the conventions below that aren't yet in this repo** (they land in later posts and live in the full project): the world-graph overlay in `frontend/src/components/` and the `extract-world-graph` Claude Code skill (Post 9), Modal / Fly / R2 infra (Post 10).
+**Cloud-deploy artifacts added at the `post-10` tag** (in addition to everything Posts 2–9 left here): `Dockerfile`, `fly.toml`, `.env.production.example`, `infra/modal_ollama.py`, `infra/entrypoint.sh`, `infra/dump_seed.sh`, the boto3-backed `R2Storage` implementation in `backend/app/clients/storage.py`, `docs/deployment.md`, and `docs/decisions/0004-cloud-deployment.md`.
 
 ---
 
@@ -208,6 +208,15 @@ curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/
   -d '{"current_page":3}'
 curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
   -d '{"mode":"page","message":"who is on this page?"}'   # -N: unbuffered; watch token/done SSE frames
+
+# Cloud deploy (Post 10 — see docs/deployment.md for the full guide)
+cp .env.production.example .env.production    # fill in 11 values
+modal deploy infra/modal_ollama.py            # GPU-served Ollama on Modal
+./infra/dump_seed.sh                          # local Postgres → data/seed.sql
+fly launch --no-deploy --copy-config          # uses the committed fly.toml
+fly secrets set …                             # push every value in .env.production
+fly deploy                                    # container build + deploy → public URL
+# Cloudflare Pages: connect repo, set VITE_API_BASE_URL, build = `cd frontend && npm install && npm run build`.
 ```
 
 ---
@@ -224,7 +233,8 @@ curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: appl
 | Add or edit wiki content | `ingestion/wiki_seed.yaml`, then `cd ingestion && uv run python ingest_wiki.py` |
 | Inspect the SQLAlchemy data model | `backend/app/db/models.py` |
 | Read the field-by-field schema rationale | `docs/data-model.md` |
-| Read the local-first / provider / storage rationale | `docs/decisions/0001`-`0003` |
+| Read the local-first / provider / storage / deploy rationale | `docs/decisions/0001`–`0004` |
+| Deploy to the public internet | `docs/deployment.md` + `infra/` + `fly.toml` + `Dockerfile` + `.env.production.example` |
 | Change DB schema | `backend/app/db/models.py` + new Alembic migration via `uv run alembic revision --autogenerate -m "..."` |
 | Verify the FastAPI scaffold boots | `uv run uvicorn app.main:app --reload`, then `curl http://localhost:8000/health` |
 | Add or change an API route | `backend/app/api/` — Pydantic response models declared inline next to the router; resolve relative storage keys through `Storage.url_for()` in the handler |
