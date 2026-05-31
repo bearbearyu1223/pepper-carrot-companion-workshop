@@ -221,22 +221,47 @@ You want HTTP 200 with JSON listing both models.
    ```
    Should print `peppercarrot-images`.
 
-7. **Upload the images:**
+7. **Scrub local `.DS_Store` files first** if you're on macOS. Finder
+   writes these into every directory you browse to, and a naive
+   `rclone copy` will happily upload them — including the leak of
+   `.DS_Store` files being publicly readable at the bucket prefix.
 
    ```bash
-   rclone copy data/images             r2:peppercarrot-images --progress
-   rclone copy data/world-graph/images r2:peppercarrot-images/world-graph/images --progress
+   find data/images data/world-graph/images -name .DS_Store -delete
+   ```
+
+8. **Upload the images.** Two `rclone` commands — the `--exclude` flags
+   defend against any `.DS_Store` files that snuck through and the
+   2 MB `-original.jpg` source files the frontend never reads.
+
+   ```bash
+   rclone copy data/images r2:peppercarrot-images --progress \
+       --exclude ".DS_Store" --exclude "**/.DS_Store" \
+       --exclude "**/*-original.jpg"
+   rclone copy data/world-graph/images r2:peppercarrot-images/world-graph/images --progress \
+       --exclude ".DS_Store" --exclude "**/.DS_Store"
    ```
 
    The first command takes a few minutes (depends on how many episodes
-   you've ingested). The second is small (a few MB of avatars).
+   you've ingested; ~36 MB for a 12-episode ingest with `-original.jpg`
+   excluded, vs. ~177 MB if you keep them). The second is small (a few
+   MB of avatars).
 
-8. **Verify keys match what the database expects.** The DB stores keys
+   > **`copy` is additive — it never deletes.** If you re-deploy after
+   > re-ingesting (different episode slugs, a different episode set,
+   > or just to drop the originals), use `rclone sync` instead and
+   > target the `episodes/` subdirectory to leave `world-graph/`
+   > alone. See the [Pruning stale uploads from R2](#pruning-stale-uploads-from-r2)
+   > recipe in Operations for the dry-run-first form.
+
+9. **Verify keys match what the database expects.** The DB stores keys
    like `episodes/ep01-potion-of-flight/pages/001-display.webp` and
    `world-graph/images/carrot-thumb.webp`:
 
    ```bash
-   rclone ls r2:peppercarrot-images | head
+   # One directory per episode you ingested (12 lines for ep01–12, etc.).
+   rclone lsf r2:peppercarrot-images/episodes/ --dirs-only | sort
+   # Quick public-read smoke test:
    curl -I "https://pub-XXXX.r2.dev/world-graph/images/carrot-thumb.webp"
    # Expect HTTP/2 200 with content-type: image/webp.
    ```
@@ -388,13 +413,16 @@ If chat + the world graph both work end-to-end, the demo is live.
 You added a new episode locally. To reflect it in prod:
 
 ```bash
-# 1. Re-dump the seed (picks up the new episode rows + new chunks)
+# 1. Re-dump the seed (picks up the new episode rows + new chunks).
 ./infra/dump_seed.sh
 
-# 2. Upload the new episode's images to R2
-rclone copy data/images r2:peppercarrot-images --progress
+# 2. Upload the new episode's images to R2 (additive — copy never deletes,
+#    so existing R2 objects stay put).
+rclone copy data/images r2:peppercarrot-images --progress \
+    --exclude ".DS_Store" --exclude "**/.DS_Store" \
+    --exclude "**/*-original.jpg"
 
-# 3. Redeploy backend (rebuilds image with the updated seed.sql + Chroma)
+# 3. Redeploy backend (rebuilds image with the updated seed.sql + Chroma).
 fly deploy
 ```
 
@@ -403,6 +431,51 @@ The Chroma directory inside the image, however, is replaced — so new
 episodes' embeddings come along for the ride. **You can't add new
 episodes without redeploying the backend** (Chroma is baked, not
 external).
+
+### Pruning stale uploads from R2 {#pruning-stale-uploads-from-r2}
+
+`rclone copy` (the default in this guide) is **additive — it never
+deletes**. That's the right behavior for incremental re-deploys, but it
+also means that if you previously uploaded episodes you no longer have
+locally (a different episode set, a different ingest run), they stay
+in the bucket forever. To make R2 mirror your local `data/images/`
+exactly, swap `copy` for `sync`:
+
+```bash
+# 1. DRY RUN first — sync deletes, and a wrong-shaped source path will
+#    happily wipe data you wanted to keep. The episodes/ target leaves
+#    the world-graph/ prefix in the bucket untouched.
+rclone sync data/images/episodes r2:peppercarrot-images/episodes \
+    --exclude ".DS_Store" --exclude "**/.DS_Store" \
+    --exclude "**/*-original.jpg" \
+    --progress --dry-run
+
+# 2. Read the "would delete" lines carefully. If the list matches what
+#    you expect (e.g. ep13–ep39 you no longer have locally), drop --dry-run:
+rclone sync data/images/episodes r2:peppercarrot-images/episodes \
+    --exclude ".DS_Store" --exclude "**/.DS_Store" \
+    --exclude "**/*-original.jpg" \
+    --progress
+
+# 3. Clean any straggler junk at the bucket root that the sync didn't
+#    cover (it only touched episodes/).
+rclone delete r2:peppercarrot-images/.DS_Store 2>/dev/null || true
+```
+
+Verify:
+
+```bash
+# One directory per episode locally — should match what's in data/images/episodes/.
+rclone lsf r2:peppercarrot-images/episodes/ --dirs-only | sort
+# Two prefixes total in the bucket — episodes/ and world-graph/. Nothing else.
+rclone lsf r2:peppercarrot-images --dirs-only
+# Total size — ~36 MB if you excluded -original.jpg; ~177 MB if you kept them.
+rclone size r2:peppercarrot-images
+```
+
+The frontend only ever reads `-display.webp` and `-thumbnail.webp`
+variants at runtime, so excluding `-original.jpg` shrinks the bucket
+~4× without affecting anything the user sees. Cosmetic, not functional.
 
 ### Where to find logs
 
@@ -509,6 +582,8 @@ end-to-end test (Step 7) are also unchanged.
 | `prepared statement "__asyncpg_stmt…" does not exist` | Used the **pooled** endpoint for `DATABASE_URL_OVERRIDE` | Switch to unpooled (drop `-pooler` from the hostname) |
 | Browser shows "CORS error" | `CORS_ORIGINS` doesn't match the Pages URL exactly | `fly secrets set CORS_ORIGINS='["https://exact-pages-url"]'` |
 | Episode covers / pages broken in browser | R2 keys are wrong, or `R2_PUBLIC_URL_PREFIX` mismatched | `rclone ls r2:peppercarrot-images \| head` and compare to `pages.image_url` in DB |
+| R2 bucket still contains episodes you no longer have locally | `rclone copy` is additive and never deletes | Use `rclone sync` instead — see [Pruning stale uploads from R2](#pruning-stale-uploads-from-r2). Always run with `--dry-run` first. |
+| `.DS_Store` files publicly readable on the bucket prefix | macOS Finder writes them; an earlier `rclone copy` without `--exclude` swept them in | `rclone delete r2:peppercarrot-images --include "**/.DS_Store" --include ".DS_Store"`. Add the `--exclude ".DS_Store"` flag to every future `rclone copy` / `sync`. |
 | Chat 401s | Modal proxy auth tokens don't match | Regenerate in Modal dashboard, `fly secrets set MODAL_PROXY_TOKEN_ID=… MODAL_PROXY_TOKEN_SECRET=…` |
 | First chat message hangs ~30s | Modal cold start | Expected. Subsequent messages within `scaledown_window` (5 min) are instant. |
 | `fly logs` shows app-startup tracebacks | Config issue — wrong env value, missing secret | The traceback's last few lines name the failing field; cross-check `.env.production`. |
