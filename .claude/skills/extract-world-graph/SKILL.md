@@ -1,5 +1,5 @@
 ---
-description: Extract the Pepper&Carrot world graph from the workshop's local sources — the seed wiki (`ingestion/wiki_seed.yaml`), the per-page description JSONs under `data/raw/ep*/pages/`, and the `data/world-graph/image_manifest.json` — then write `data/world-graph/entities.yaml` and `data/world-graph/relationships.yaml` that the world-graph loader consumes. Trigger phrases include "extract the world graph", "rebuild the world graph", "regenerate world graph YAML", "extract-world-graph".
+description: Extract the Pepper&Carrot world graph from the workshop's local sources — the curated wiki (`data/raw/wiki/*.md`), the framagit-scraped wiki (`data/raw/wiki-upstream/*.md` when present), the per-page description JSONs under `data/raw/ep*/pages/`, and the `data/world-graph/image_manifest.json` — then write `data/world-graph/entities.yaml` and `data/world-graph/relationships.yaml` that the world-graph loader consumes. Trigger phrases include "extract the world graph", "rebuild the world graph", "regenerate world graph YAML", "extract-world-graph".
 allowed-tools:
   - Read
   - Write
@@ -14,28 +14,28 @@ You (Claude Code) act as a one-shot author: read the available source
 material, synthesize a graph of named characters / creatures / places /
 covens, then write the YAML pair the world-graph loader consumes.
 
-The YAML is the durable artifact (see Post 9 and
-`docs/decisions/0005-skill-driven-world-graph.md`). Once it's on disk
-and loads cleanly, **fixes go into the YAML directly** — don't expect
-re-runs of this skill to be deterministic. Re-run only when source
-material changes (new episodes ingested, image manifest refreshed,
-seed wiki expanded).
+The YAML is the durable artifact. Once it's on disk and loads cleanly,
+**fixes go into the YAML directly** — don't expect re-runs of this skill
+to be deterministic. Re-run only when source material changes (new
+episodes ingested, image manifest refreshed, wiki sources expanded).
 
 ## Inputs and outputs
 
 | Read                                                  | Write                                 |
 |-------------------------------------------------------|---------------------------------------|
 | `data/world-graph/image_manifest.json`                | `data/world-graph/entities.yaml`      |
-| `ingestion/wiki_seed.yaml`                            | `data/world-graph/relationships.yaml` |
+| `data/raw/wiki/*.md` (curated, ~9 bios)               | `data/world-graph/relationships.yaml` |
+| `data/raw/wiki-upstream/*.md` (framagit, when present)|                                       |
 | `data/raw/ep*/pages/page_*.json`                      |                                       |
 | `data/world-graph/entities.yaml` (if present)         |                                       |
-| Optional: `data/raw/wiki-upstream/*.md` (full app)    |                                       |
 
-The **full project** (Post 10's repo) maintains a scraped
-`data/raw/wiki-upstream/` from framagit. The **workshop** ships with
-only the small seed wiki — work from that plus the page JSONs from
-ingested episodes, and let coverage grow organically as the reader
-ingests more episodes via the `ingest-from-images` skill.
+The **curated wiki** under `data/raw/wiki/` ships with the workshop and
+covers the headline entities (Pepper, Carrot, the four primary covens,
+…). The **framagit-scraped wiki** under `data/raw/wiki-upstream/` is
+populated by `ingestion/wiki_scraper.py` and adds the long bios of
+every minor character, creature, place, and school. In a fresh
+workshop clone only the curated dir exists; run the scraper first if
+you want the broader coverage.
 
 If the user requests **"extract to a draft"**, write to
 `data/world-graph/draft/entities.yaml` and
@@ -56,9 +56,10 @@ If the manifest **does not exist**, stop and instruct the user:
 ## Step 1 — Read source material
 
 **Required**:
-- `ingestion/wiki_seed.yaml` — the hand-written articles seeded for
-  wiki mode. Each article has `slug`, `title`, `category`, and `content`.
-  This is the primary substance source for the workshop.
+- `data/raw/wiki/*.md` — the curated bios that ship with the workshop.
+  Each `.md` file has YAML frontmatter (`slug`, `title`, `category`,
+  `source_url`) followed by the bio body. This is the substance source
+  for the headline entities.
 
 **Required where present**:
 - `data/raw/ep*/pages/page_*.json` — per-page descriptions written by
@@ -69,9 +70,10 @@ If the manifest **does not exist**, stop and instruct the user:
   *when* an entity first appears.
 
 **Optional supplement**:
-- `data/raw/wiki-upstream/*.md` — if the user has scraped the full
-  framagit wiki separately, treat these as authoritative for bios.
-  In a fresh workshop clone they won't exist; that's fine.
+- `data/raw/wiki-upstream/*.md` — the framagit-scraped articles. When
+  present, treat these as authoritative for long bios. Run
+  `cd ingestion && uv run python wiki_scraper.py` to populate this dir
+  in a fresh workshop clone.
 
 ## Step 2 — Read existing artifacts for cross-reference
 
