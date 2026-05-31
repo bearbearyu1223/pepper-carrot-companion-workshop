@@ -95,6 +95,25 @@ def create_app() -> FastAPI:
     if settings.storage_backend == "local":
         mount_path = urlparse(settings.local_image_url_prefix).path or "/images"
         settings.local_image_dir.mkdir(parents=True, exist_ok=True)
+
+        # World-graph art lives OUTSIDE local_image_dir, at data/world-graph/
+        # images/ (alongside the YAML the loader consumes — see Post 9). The
+        # `image_url` keys stored on world_entities use a `world-graph/...`
+        # prefix, so we mount the corresponding directory at the same
+        # sub-path. Registered BEFORE the parent /images mount so FastAPI
+        # tries the inner mount first on overlapping paths — without that,
+        # the parent mount swallows /images/world-graph/images/* and 404s
+        # because data/images/world-graph/images/ doesn't exist.
+        world_graph_images_dir = (
+            settings.local_image_dir.parent / "world-graph" / "images"
+        )
+        if world_graph_images_dir.is_dir():
+            app.mount(
+                f"{mount_path}/world-graph/images",
+                StaticFiles(directory=world_graph_images_dir),
+                name="world-graph-images",
+            )
+
         app.mount(
             mount_path,
             StaticFiles(directory=settings.local_image_dir),
