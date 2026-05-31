@@ -92,6 +92,11 @@ interface ChatPanelProps {
   // Each distinct object identity fires one wiki-mode submission, so
   // re-asking about the same entity still triggers a new turn.
   outboundQuestion?: { mode: Mode; text: string } | null;
+  // Invoked when the reader hits "New chat". The parent owns session
+  // lifecycle (we just observe `sessionId`), so the parent's handler is
+  // expected to mint a fresh session — when `sessionId` then changes,
+  // the existing useEffect resets the local message list.
+  onNewChat?: () => void;
 }
 
 export function ChatPanel({
@@ -99,6 +104,7 @@ export function ChatPanel({
   currentPage,
   isSpread,
   outboundQuestion,
+  onNewChat,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -188,7 +194,20 @@ export function ChatPanel({
 
   return (
     <aside className="chat-panel">
-      <div className="chat-hint">{hint}</div>
+      <div className="chat-hint">
+        <span>{hint}</span>
+        {onNewChat && (
+          <button
+            type="button"
+            className="chat-new-chat"
+            onClick={onNewChat}
+            disabled={!sessionId || streaming}
+            title="Start a fresh chat (clears history for this episode)"
+          >
+            New chat
+          </button>
+        )}
+      </div>
 
       <div className="chat-log" ref={logRef}>
         {messages.length === 0 && (

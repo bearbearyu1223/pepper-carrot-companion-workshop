@@ -46,6 +46,22 @@ export function App() {
     };
   }, [selectedEpisode]);
 
+  // Wired to the chat panel's "New chat" button: mint a fresh session
+  // for the same episode. Setting `sessionId` to null first guarantees
+  // the panel's `useEffect([sessionId])` runs even if the backend hands
+  // back the same id by coincidence, so the message list resets cleanly.
+  // Old session rows stay in Postgres but are orphaned; we don't try to
+  // garbage-collect them — keeping the audit trail is fine for a single-
+  // user demo.
+  const handleNewChat = () => {
+    if (!selectedEpisode) return;
+    setSessionId(null);
+    api
+      .createSession(selectedEpisode.slug)
+      .then((res) => setSessionId(res.session_id))
+      .catch((err) => console.warn('createSession (new chat) failed:', err));
+  };
+
   // Push the reader's position to the server, debounced — flipping fires this
   // rapidly, and only the page they land on needs to be recorded.
   useEffect(() => {
@@ -116,6 +132,7 @@ export function App() {
           currentPage={currentPage}
           isSpread={showSpread}
           outboundQuestion={outboundQuestion}
+          onNewChat={handleNewChat}
         />
       </main>
       {worldOpen && (
