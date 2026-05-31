@@ -62,7 +62,7 @@ disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["blurhash.*", "sentence_transformers.*", "aiofiles.*", "yaml", "tqdm"]
+module = ["blurhash.*", "sentence_transformers.*", "aiofiles.*", "yaml", "tqdm", "boto3", "botocore.*"]
 ignore_missing_imports = true
 
 # Chroma ships type stubs, but they're stricter than its actual surface (numpy-typed
