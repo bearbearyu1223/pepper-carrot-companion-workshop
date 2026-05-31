@@ -57,9 +57,18 @@ interface ChatPanelProps {
   sessionId: string | null;
   currentPage: number;
   isSpread: boolean;
+  // Pumped by the world-graph overlay's "Ask in wiki mode" button (Post 9).
+  // Each distinct object identity fires one wiki-mode submission, so
+  // re-asking about the same entity still triggers a new turn.
+  outboundQuestion?: { mode: Mode; text: string } | null;
 }
 
-export function ChatPanel({ sessionId, currentPage, isSpread }: ChatPanelProps) {
+export function ChatPanel({
+  sessionId,
+  currentPage,
+  isSpread,
+  outboundQuestion,
+}: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -74,6 +83,19 @@ export function ChatPanel({ sessionId, currentPage, isSpread }: ChatPanelProps) 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages]);
+
+  // When the world-graph overlay pushes a question in, send it as if the
+  // user had typed it. Identity-keyed so re-asking about the same entity
+  // still fires (the parent passes a fresh object each time).
+  const sendMessageRef = useRef<(text: string, mode: Mode) => void>(() => {});
+  useEffect(() => {
+    if (outboundQuestion && sessionId) {
+      sendMessageRef.current(outboundQuestion.text, outboundQuestion.mode);
+    }
+    // sessionId intentionally omitted from deps — outbound identity is
+    // the only thing that should re-trigger a send.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outboundQuestion]);
 
   const sendMessage = async (text: string, mode: Mode) => {
     if (!sessionId || !text.trim() || streaming) return;
@@ -111,6 +133,10 @@ export function ChatPanel({ sessionId, currentPage, isSpread }: ChatPanelProps) 
       setStreaming(false);
     }
   };
+
+  // Keep the latest sendMessage closure on a ref so the outbound-question
+  // effect can call it without re-firing on every render.
+  sendMessageRef.current = sendMessage;
 
   if (!sessionId) {
     return <aside className="chat-panel chat-panel--idle">Starting a reading session…</aside>;

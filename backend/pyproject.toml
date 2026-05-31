@@ -39,6 +39,11 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "httpx>=0.27",
+    # In-memory async DB for the world-graph spoiler-filter test (Post 9).
+    # The runtime uses asyncpg against Postgres; SQLite is used only by tests
+    # so the spoiler boundary can be exercised against a real SQL engine
+    # without requiring a docker-compose Postgres to be running.
+    "aiosqlite>=0.20",
 ]
 
 [tool.ruff]

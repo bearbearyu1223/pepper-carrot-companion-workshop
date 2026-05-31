@@ -1,0 +1,201 @@
+# World-graph entities — extracted by the `extract-world-graph` skill from the
+# seed wiki + the per-page description JSONs of ep01–ep12. The YAML is the
+# durable artifact: hand-edit it to fix any wrong debut, layout, or summary;
+# re-run the skill only when the source material itself changes (new episodes
+# ingested, image manifest refreshed, seed wiki expanded).
+#
+# Debut tuples are the (episode_number, page_number) where this entity first
+# becomes knowable to the reader — the spoiler boundary the API enforces.
+#
+# Pepper & Carrot is © David Revoy, CC BY 4.0 — https://www.peppercarrot.com
+
+entities:
+  # ── Pepper at origin; Carrot at her shoulder. ──
+  - slug: pepper
+    name: Pepper
+    kind: character
+    summary: The young witch at the centre of the comic. She practises Chaosah magic, lives in a small hilltop house, and most episodes follow some chaotic experiment or rivalry of hers cheerfully going sideways.
+    episode_debut: 1
+    page_debut: 1
+    layout: { x: 0, y: 0 }
+    image_url: world-graph/images/pepper-thumb.webp
+    character_slug: pepper
+
+  - slug: carrot
+    name: Carrot
+    kind: character
+    summary: Pepper's ginger cat and constant companion — curious, expressive, and usually the spark that sets an episode's mishap in motion.
+    episode_debut: 1
+    page_debut: 1
+    layout: { x: 30, y: 30 }
+    image_url: world-graph/images/carrot-thumb.webp
+    character_slug: carrot
+
+  # ── Rival witches at the potion contest (ep6) → birthday-party friends (ep8). ──
+  - slug: saffron
+    name: Saffron
+    kind: character
+    summary: An orange-haired witch from Komona who carries herself like the city's local star. She specialises in showy, status-driven potions and is Pepper's prickly rival.
+    episode_debut: 3
+    page_debut: 2
+    layout: { x: 280, y: 240 }
+    image_url: world-graph/images/saffron-thumb.webp
+    character_slug: saffron
+
+  - slug: coriander
+    name: Coriander
+    kind: character
+    summary: A dark-skinned, curly-haired witch from the Technologist's Union whose contest entry was a Potion of Zombification — equal parts ingenious and grim.
+    episode_debut: 6
+    page_debut: 4
+    layout: { x: 320, y: 120 }
+    image_url: world-graph/images/coriander-thumb.webp
+    character_slug: coriander
+
+  - slug: shichimi
+    name: Shichimi
+    kind: character
+    summary: A soft-spoken witch from the lands of the setting moons; her potions are unexpectedly dangerous, which is why she'd rather not demonstrate them.
+    episode_debut: 6
+    page_debut: 4
+    layout: { x: 360, y: 0 }
+    image_url: world-graph/images/shichimi-thumb.webp
+    character_slug: shichimi
+
+  - slug: yuzu
+    name: Yuzu
+    kind: character
+    summary: Shichimi's white kitten and quiet shadow; tags along to every gathering of the four witches.
+    episode_debut: 6
+    page_debut: 4
+    layout: { x: 390, y: 30 }
+    image_url: world-graph/images/yuzu-thumb.webp
+    character_slug: yuzu
+
+  - slug: mayor
+    name: Mayor of Komona
+    kind: character
+    summary: The top-hatted mayor of Komona who runs the city's potion contest and awards the prize purse.
+    episode_debut: 6
+    page_debut: 3
+    layout: { x: 0, y: -300 }
+    image_url: world-graph/images/mayor-thumb.webp
+    character_slug: "mayor of komona"
+
+  # ── The three Chaosah godmothers (ep11). ──
+  - slug: cayenne
+    name: Cayenne
+    kind: character
+    summary: The sternest of Pepper's three Chaosah godmothers; gaunt, green-skinned, and an academic of gravitational fields — she'll correct your spell-work even mid-disaster.
+    episode_debut: 11
+    page_debut: 1
+    layout: { x: -260, y: -260 }
+    image_url: world-graph/images/cayenne-thumb.webp
+    character_slug: cayenne
+
+  - slug: thyme
+    name: Thyme
+    kind: character
+    summary: One of Pepper's three Chaosah godmothers — a wild-haired witch with a long crooked nose whose particular gift is summoning Cumin in bat-form to keep an eye on her apprentice.
+    episode_debut: 11
+    page_debut: 1
+    layout: { x: -340, y: -260 }
+    image_url: world-graph/images/thyme-thumb.webp
+    character_slug: thyme
+
+  - slug: cumin
+    name: Cumin
+    kind: character
+    summary: One of Pepper's three Chaosah godmothers — plump, dark-skinned, with a white halo of curls — who can take the form of a small purple bat to shadow Pepper on her missions.
+    episode_debut: 11
+    page_debut: 1
+    layout: { x: -300, y: -300 }
+    image_url: world-graph/images/cumin-thumb.webp
+    character_slug: cumin
+
+  - slug: acren
+    name: Prince Acren
+    kind: character
+    summary: The young King of Acren — about Pepper's age and just as alone in his role. Pepper meets him while attempting (and failing) her first cruel Chaosah mission.
+    episode_debut: 11
+    page_debut: 4
+    layout: { x: 0, y: -260 }
+    image_url: world-graph/images/acren-thumb.webp
+    character_slug: "prince acren"
+
+  - slug: fairies
+    name: Fairies
+    kind: character
+    summary: The luminous wish-granting fairies of the magical Fairy Cave; their generosity is wasted when Carrot's sleepy meow becomes Pepper's wish.
+    episode_debut: 7
+    page_debut: 3
+    layout: { x: 200, y: -100 }
+    image_url: null
+    character_slug: fairies
+
+  # ── Covens at compass points. Hippiah is wiki-only and defaults to (1, 1). ──
+  - slug: chaosah
+    name: Chaosah
+    kind: coven
+    summary: The school of chaos magic — among the oldest and most feared of the witch traditions of Hereva. Pepper, her three godmothers, and (in ep08) summoned monsters all belong to it.
+    episode_debut: 8
+    page_debut: 5
+    layout: { x: -300, y: -200 }
+    image_url: null
+
+  - slug: hippiah
+    name: Hippiah
+    kind: coven
+    summary: The witch school of living things — plants, animals, and growth. Where Chaosah leans on entropy, Hippiah magic nurtures and shapes life.
+    # confidence: low — defaulted (seed-wiki entity, no episode debut yet)
+    episode_debut: 1
+    page_debut: 1
+    layout: { x: 300, y: -200 }
+    image_url: null
+
+  # ── Places. Hereva defaults to (1, 1) as a world-wide setting. ──
+  - slug: hereva
+    name: Hereva
+    kind: place
+    summary: The whimsical world in which Pepper&Carrot takes place — dotted with witch houses, markets, and the occasional dragon, its magic organised into distinct schools.
+    # confidence: low — defaulted (seed-wiki entity)
+    episode_debut: 1
+    page_debut: 1
+    layout: { x: -200, y: -400 }
+    image_url: null
+
+  - slug: komona
+    name: Komona
+    kind: place
+    summary: A bustling sky-island city of fantasy architecture and busy markets — home to Saffron and host of the annual Potion Contest.
+    episode_debut: 3
+    page_debut: 1
+    layout: { x: 0, y: -400 }
+    image_url: null
+
+  - slug: squirrels-end
+    name: Squirrel's End
+    kind: place
+    summary: The forest where Pepper makes her home — a quiet countryside corner the Komona witches consider provincial.
+    episode_debut: 6
+    page_debut: 4
+    layout: { x: -200, y: -400 }
+    image_url: null
+
+  - slug: acren-kingdom
+    name: Kingdom of Acren
+    kind: place
+    summary: The young King's domain — a stone castle wreathed in stormy clouds, glimpsed in ep11 when Pepper is sent there on her first Chaosah mission.
+    episode_debut: 11
+    page_debut: 3
+    layout: { x: 200, y: -400 }
+    image_url: null
+
+  - slug: fairy-cave
+    name: Fairy Cave
+    kind: place
+    summary: A glowing turquoise cavern hidden between two boulders in the forest where the wish-granting fairies make their home.
+    episode_debut: 7
+    page_debut: 3
+    layout: { x: 350, y: -350 }
+    image_url: null

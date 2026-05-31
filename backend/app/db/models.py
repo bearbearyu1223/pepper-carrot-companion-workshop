@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     Float,
     ForeignKey,
@@ -21,6 +22,16 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# Cross-dialect column types. Runtime always speaks Postgres (asyncpg), so the
+# `.with_variant(JSON, "sqlite")` calls below are no-ops in production — they
+# only kick in when the test suite spins up an in-memory aiosqlite engine
+# (see backend/tests/test_world_graph_api.py). The "sqlite" variant uses a
+# plain TEXT-JSON column there, which is enough for the lists and dicts we
+# stash on `mood_tags`, `image_metadata`, `aliases`, `retrieved_doc_ids`, and
+# `token_counts` — none of which are ever queried by their internal shape.
+_PG_ARRAY_STR = ARRAY(String).with_variant(JSON, "sqlite")
+_PG_JSONB = JSONB().with_variant(JSON, "sqlite")
 
 
 class Base(DeclarativeBase):
@@ -81,8 +92,8 @@ class Page(Base):
     original_url: Mapped[str | None] = mapped_column(Text)
     ocr_text: Mapped[str | None] = mapped_column(Text)
     visual_description: Mapped[str | None] = mapped_column(Text)
-    mood_tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    image_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    mood_tags: Mapped[list[str]] = mapped_column(_PG_ARRAY_STR, default=list)
+    image_metadata: Mapped[dict[str, Any]] = mapped_column(_PG_JSONB, default=dict)
 
     episode: Mapped[Episode] = relationship(back_populates="pages")
     characters: Mapped[list[Character]] = relationship(
@@ -95,7 +106,7 @@ class Character(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    aliases: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    aliases: Mapped[list[str]] = mapped_column(_PG_ARRAY_STR, default=list)
     bio: Mapped[str | None] = mapped_column(Text)
     first_appearance_episode_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("episodes.id", ondelete="SET NULL")
@@ -229,9 +240,9 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # 'user' | 'assistant'
     mode: Mapped[str | None] = mapped_column(String(32))  # null on user messages OK
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    retrieved_doc_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    retrieved_doc_ids: Mapped[list[str]] = mapped_column(_PG_JSONB, default=list)
     latency_ms: Mapped[int | None] = mapped_column()
-    token_counts: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    token_counts: Mapped[dict[str, Any]] = mapped_column(_PG_JSONB, default=dict)
     created_at: Mapped[datetime] = _timestamp_now()
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")

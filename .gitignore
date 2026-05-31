@@ -31,6 +31,11 @@ data/images/
 data/raw/ep*/
 data/chroma/
 
+# World-graph: the YAML pair + image manifest ARE committed (small, durable,
+# version-controlled). The scraped image bytes are NOT — anyone can re-run
+# `ingestion/wiki_image_scraper.py` to pull them back from framagit.
+data/world-graph/images/
+
 # OS
 .DS_Store
 Thumbs.db

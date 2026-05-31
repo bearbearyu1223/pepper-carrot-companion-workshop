@@ -6,7 +6,14 @@
 // built-in `EventSource` (GET-only) can't be used — we read the response body
 // as a stream and parse the SSE frames ourselves.
 
-import type { Episode, EpisodeDetail, Mode, Session, Suggestion } from './types';
+import type {
+  Episode,
+  EpisodeDetail,
+  Mode,
+  Session,
+  Suggestion,
+  WorldGraph,
+} from './types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -43,6 +50,15 @@ export const api = {
     });
     if (!res.ok) throw new Error(`updateCurrentPage failed: ${res.status}`);
   },
+
+  // Spoiler-filtered snapshot of the world graph for the reader's current
+  // position. The cursor lives in the URL — the API clamps it to the
+  // episode's real page count and the filter is a SQL row-value compare,
+  // not a prompt instruction (Post 9).
+  fetchWorldGraph: (episodeSlug: string, page: number): Promise<WorldGraph> =>
+    get<WorldGraph>(
+      `/api/world-graph?episode_slug=${encodeURIComponent(episodeSlug)}&page=${page}`,
+    ),
 };
 
 // The events `streamMessage` yields. `done` carries the suggestion chips.

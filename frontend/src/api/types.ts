@@ -75,3 +75,43 @@ export interface Session {
   session_id: string;
   current_page: number;
 }
+
+// ─── World graph (Post 9) ────────────────────────────────────────────────────
+
+// One of five entity kinds. Drives node coloring, fallback-icon shape, and
+// the kind badge on the info card. Mirrors the validator in
+// `ingestion/world_graph_loader.py::EntityData._check_kind`.
+export type WorldKind = 'character' | 'creature' | 'place' | 'coven' | 'object';
+
+// A node in the spoiler-filtered overlay. `image_url` is already composed
+// against the storage abstraction by the time the API returns it; null when
+// no upstream artwork exists for this entity (the frontend draws a kind-
+// based SVG fallback in that case).
+export interface WorldNode {
+  id: string;
+  slug: string;
+  name: string;
+  kind: WorldKind;
+  summary: string | null;
+  image_url: string | null;
+  x: number;
+  y: number;
+  episode_debut: number;
+  page_debut: number;
+}
+
+// A directed edge between two nodes. `kind` is colored by the frontend.
+export interface WorldEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: string;
+  summary: string | null;
+  episode_debut: number;
+  page_debut: number;
+}
+
+export interface WorldGraph {
+  nodes: WorldNode[];
+  edges: WorldEdge[];
+}

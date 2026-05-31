@@ -574,3 +574,277 @@ a { color: var(--accent); }
 .chat-wiki { background: transparent; color: var(--wiki); border: 1px solid rgba(122, 77, 126, 0.45); }
 .chat-wiki:not(:disabled):hover { background: rgba(122, 77, 126, 0.1); }
 .chat-send:disabled, .chat-wiki:disabled { opacity: 0.5; cursor: default; }
+
+/* ───────────────────────────────────────────────────────────────────────
+   World-graph overlay (Post 9)
+   --------------------------------------------------------------------- */
+
+/* Slide-in side panel anchored on the right of the reader. Backdrop dims
+   the flipbook so the reader keeps a sense of where they are; the panel
+   itself feels like a continuation of the reader, not a modal from a
+   different app. */
+.world-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+.world-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(60, 35, 15, 0.35);
+  backdrop-filter: blur(2px);
+  animation: world-fade-in 200ms ease-out;
+}
+.world-overlay__panel {
+  position: relative;
+  width: min(560px, 100vw);
+  height: 100%;
+  background: var(--parchment);
+  border-left: 1px solid var(--parchment-edge);
+  box-shadow: -8px 0 24px rgba(60, 35, 15, 0.15);
+  display: flex;
+  flex-direction: column;
+  animation: world-slide-in 220ms ease-out;
+}
+@keyframes world-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes world-slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.world-overlay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--parchment-edge);
+}
+.world-overlay__header h2 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+.world-overlay__close {
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 0.4rem;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.world-overlay__close:hover { background: var(--parchment-edge); }
+
+/* The header button in the reader that opens the overlay. */
+.header-world {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wiki);
+  border: 1px solid rgba(122, 77, 126, 0.45);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.header-world:hover { background: rgba(122, 77, 126, 0.1); }
+
+/* ─── The graph canvas + react-flow theming ─── */
+.world-graph { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.world-graph__canvas {
+  flex: 1;
+  position: relative;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(231, 211, 168, 0.4), transparent 60%),
+    radial-gradient(circle at 80% 90%, rgba(231, 211, 168, 0.35), transparent 55%),
+    var(--parchment);
+}
+.world-graph__loading,
+.world-graph__empty,
+.world-graph__error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  font-family: var(--font-ui);
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+.world-graph__empty code {
+  background: var(--parchment-edge);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* ─── Avatar node ─── */
+.world-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  transition: transform 200ms ease;
+}
+.world-node--selected {
+  transform: scale(1.08);
+}
+.world-node__avatar {
+  border-radius: 50%;
+  overflow: hidden;
+  border-width: 3px;
+  border-style: solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(60, 35, 15, 0.15);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.world-node__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.world-node--selected .world-node__avatar {
+  box-shadow: 0 0 0 4px rgba(216, 90, 48, 0.3), 0 4px 10px rgba(60, 35, 15, 0.2);
+}
+.world-node__label {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--fg);
+  text-shadow: 0 1px 0 var(--parchment);
+  max-width: 110px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Soft fade-in for newly-revealed nodes / edges when the reader flips
+   into new territory (Post 9 polish). The diff happens in JS; the
+   animation is pure CSS — one keyframes definition, mounted via the
+   `world-node--new` / `world-edge--new` class for one render cycle. */
+@keyframes world-node-debut {
+  0%   { opacity: 0; transform: scale(0.6); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.world-node--new .world-node {
+  animation: world-node-debut 520ms ease-out;
+}
+@keyframes world-edge-debut {
+  from { opacity: 0; stroke-dashoffset: 200; }
+  to   { opacity: 0.5; stroke-dashoffset: 0; }
+}
+.world-edge--new path {
+  stroke-dasharray: 200;
+  animation: world-edge-debut 600ms ease-out;
+}
+
+/* ─── Info card popover ─── */
+.world-info-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--parchment);
+  border: 1px solid var(--parchment-edge);
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem 1.2rem;
+  box-shadow: 0 12px 32px rgba(60, 35, 15, 0.25);
+  width: min(320px, calc(100% - 40px));
+  z-index: 10;
+  animation: world-fade-in 160ms ease-out;
+}
+.world-info-card__close {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  font-size: 1.4rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+}
+.world-info-card__close:hover { background: var(--parchment-edge); }
+.world-info-card__portrait {
+  margin: 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  border-width: 4px;
+  border-style: solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(60, 35, 15, 0.18);
+}
+.world-info-card__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.world-info-card__heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.8rem 0 0.4rem;
+}
+.world-info-card__heading h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 1.05rem;
+  color: var(--fg);
+}
+.world-info-card__kind-badge {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--parchment);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+.world-info-card__summary {
+  font-family: var(--font-prose);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--fg);
+  margin: 0 0 0.9rem;
+  text-align: center;
+}
+.world-info-card__ask {
+  display: block;
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  background: var(--wiki);
+  color: #fff;
+  border: 1px solid var(--wiki);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.world-info-card__ask:hover { background: #5e3a64; }
+
+/* Mobile: panel becomes a full-screen sheet so the graph isn't cramped. */
+@media (max-width: 720px) {
+  .world-overlay__panel { width: 100vw; }
+}

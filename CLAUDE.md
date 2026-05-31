@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 8** (prompt hardening + markdown safety net) of the blog series, and nothing else. The full project repository (world-graph overlay, cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., the world-graph overlay, cloud infra) belong to Posts 9–10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
+> **About the scope.** This repository is a deliberately scoped slice of a larger project — it contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 9** (world-graph overlay) of the blog series, and nothing else. The full project repository (cloud deploy) goes up alongside the deploy guide in Post 10. References below to features not yet present here (e.g., cloud infra, hardened production prompts) belong to Post 10 and apply to the full project; they're kept in this file so the conventions stay forward-compatible.
 
 ---
 

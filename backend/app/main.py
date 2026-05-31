@@ -28,7 +28,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-from app.api import episodes, messages, sessions  # noqa: E402
+from app.api import episodes, messages, sessions, world_graph  # noqa: E402
 from app.clients import get_chat_client, get_embedding_client  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db.session import close_engine, init_engine  # noqa: E402
@@ -78,12 +78,16 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # API routes. Episodes (Post 5) + sessions and chat messages (Post 6).
-    # The sessions and messages routers share the /api/sessions prefix so the
-    # message path resolves to /api/sessions/{id}/messages.
+    # API routes. Episodes (Post 5) + sessions and chat messages (Post 6) +
+    # world graph (Post 9). The sessions and messages routers share the
+    # /api/sessions prefix so the message path resolves to
+    # /api/sessions/{id}/messages.
     app.include_router(episodes.router, prefix="/api/episodes", tags=["episodes"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(messages.router, prefix="/api/sessions", tags=["chat"])
+    app.include_router(
+        world_graph.router, prefix="/api/world-graph", tags=["world-graph"]
+    )
 
     # Local image serving. Mount path is derived from `local_image_url_prefix`
     # so the backend serves files at exactly the URL that

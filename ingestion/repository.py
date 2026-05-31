@@ -15,9 +15,18 @@ from uuid import UUID
 from episode_loader import EpisodeMetadata
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from world_graph_loader import EntityData, RelationshipData
 
 from app.clients.vision import PageDescription
-from app.db.models import Character, Episode, Page, PageCharacter, WikiArticle
+from app.db.models import (
+    Character,
+    Episode,
+    Page,
+    PageCharacter,
+    WikiArticle,
+    WorldEntity,
+    WorldRelationship,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +200,116 @@ async def upsert_episode_summary(
         raise LookupError(f"No episode with id {episode_id}")
     episode.plot_summary = summary
     await session.flush()
+
+
+async def upsert_world_entity(
+    session: AsyncSession,
+    data: EntityData,
+) -> WorldEntity:
+    """Insert-or-update one world-graph entity row keyed on `slug`.
+
+    If `character_slug` is set, looks up the matching `characters` row by
+    name (lower-cased compare) and links via `character_id`. An unknown
+    `character_slug` is logged but not fatal — the entity still upserts so
+    the YAML can be authored before the canonical roster catches up.
+    """
+    existing = await session.scalar(
+        select(WorldEntity).where(WorldEntity.slug == data.slug)
+    )
+
+    character_id: UUID | None = None
+    if data.character_slug:
+        character_id = await _resolve_character_id(session, data.character_slug)
+        if character_id is None:
+            logger.warning(
+                "world entity '%s' references unknown character_slug '%s' — "
+                "leaving character_id NULL",
+                data.slug,
+                data.character_slug,
+            )
+
+    if existing is None:
+        entity = WorldEntity(
+            slug=data.slug,
+            name=data.name,
+            kind=data.kind,
+            summary=data.summary,
+            image_url=data.image_url,
+            episode_debut=data.episode_debut,
+            page_debut=data.page_debut,
+            layout_x=data.layout_x,
+            layout_y=data.layout_y,
+            character_id=character_id,
+        )
+        session.add(entity)
+    else:
+        existing.name = data.name
+        existing.kind = data.kind
+        existing.summary = data.summary
+        existing.image_url = data.image_url
+        existing.episode_debut = data.episode_debut
+        existing.page_debut = data.page_debut
+        existing.layout_x = data.layout_x
+        existing.layout_y = data.layout_y
+        existing.character_id = character_id
+        entity = existing
+
+    await session.flush()
+    return entity
+
+
+async def upsert_world_relationship(
+    session: AsyncSession,
+    data: RelationshipData,
+    slug_to_id: dict[str, UUID],
+) -> WorldRelationship:
+    """Insert-or-update one relationship row keyed on (source_id, target_id, kind).
+
+    The unique constraint `uq_world_relationships_src_tgt_kind` enforces the
+    same triple in SQL; this helper finds the existing row by the same
+    columns and mutates it in place if present.
+    """
+    source_id = slug_to_id[data.source]
+    target_id = slug_to_id[data.target]
+
+    existing = await session.scalar(
+        select(WorldRelationship).where(
+            WorldRelationship.source_id == source_id,
+            WorldRelationship.target_id == target_id,
+            WorldRelationship.kind == data.kind,
+        )
+    )
+
+    if existing is None:
+        rel = WorldRelationship(
+            source_id=source_id,
+            target_id=target_id,
+            kind=data.kind,
+            summary=data.summary,
+            episode_debut=data.episode_debut,
+            page_debut=data.page_debut,
+        )
+        session.add(rel)
+    else:
+        existing.summary = data.summary
+        existing.episode_debut = data.episode_debut
+        existing.page_debut = data.page_debut
+        rel = existing
+
+    await session.flush()
+    return rel
+
+
+async def _resolve_character_id(
+    session: AsyncSession, character_slug: str
+) -> UUID | None:
+    """Lower-case match against the seeded characters table."""
+    target = character_slug.strip().lower()
+    rows = await session.scalars(select(Character))
+    for character in rows:
+        if character.name.lower() == target:
+            return character.id
+    return None
 
 
 def _flatten_dialogue(description: PageDescription) -> str | None:

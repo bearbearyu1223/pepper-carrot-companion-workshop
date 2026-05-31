@@ -1,0 +1,128 @@
+# World-graph relationships — see entities.yaml header for the artifact
+# discipline. Each edge needs an (episode_debut, page_debut); the API
+# filters both the edge's own debut AND requires both endpoints to be
+# visible.
+
+relationships:
+  # ── Pepper's household ──
+  - source: carrot
+    target: pepper
+    kind: familiar_of
+    episode_debut: 1
+    page_debut: 1
+
+  - source: pepper
+    target: squirrels-end
+    kind: lives_in
+    episode_debut: 6
+    page_debut: 4   # first time Squirrel's End is named
+
+  - source: pepper
+    target: chaosah
+    kind: member_of
+    episode_debut: 8
+    page_debut: 5   # first explicit Chaosah mention in the episodes
+
+  # ── The three godmothers (ep11) ──
+  - source: cayenne
+    target: pepper
+    kind: godmother_of
+    episode_debut: 11
+    page_debut: 1
+
+  - source: thyme
+    target: pepper
+    kind: godmother_of
+    episode_debut: 11
+    page_debut: 1
+
+  - source: cumin
+    target: pepper
+    kind: godmother_of
+    episode_debut: 11
+    page_debut: 1
+
+  - source: cayenne
+    target: chaosah
+    kind: member_of
+    episode_debut: 11
+    page_debut: 1
+
+  - source: thyme
+    target: chaosah
+    kind: member_of
+    episode_debut: 11
+    page_debut: 1
+
+  - source: cumin
+    target: chaosah
+    kind: member_of
+    episode_debut: 11
+    page_debut: 1
+
+  # ── The other witches: rival in ep6, friends by ep8's birthday party. ──
+  - source: saffron
+    target: pepper
+    kind: rival_of
+    episode_debut: 6
+    page_debut: 4
+
+  - source: coriander
+    target: pepper
+    kind: friend_of
+    episode_debut: 8
+    page_debut: 6
+
+  - source: shichimi
+    target: pepper
+    kind: friend_of
+    episode_debut: 8
+    page_debut: 6
+
+  - source: yuzu
+    target: shichimi
+    kind: familiar_of
+    episode_debut: 6
+    page_debut: 4
+
+  # ── Komona civic ──
+  - source: mayor
+    target: komona
+    kind: lives_in
+    episode_debut: 6
+    page_debut: 3
+
+  - source: saffron
+    target: komona
+    kind: lives_in
+    episode_debut: 6
+    page_debut: 4   # introduced as "Komona's very own witch Saffron"
+
+  # ── Acren ──
+  - source: acren
+    target: acren-kingdom
+    kind: lives_in
+    episode_debut: 11
+    page_debut: 4
+
+  # ── World-as-container (low confidence — seed-wiki entities). ──
+  - source: chaosah
+    target: hereva
+    kind: located_in
+    # confidence: low — defaulted (no episode pins this)
+    episode_debut: 8
+    page_debut: 5
+
+  - source: hippiah
+    target: hereva
+    kind: located_in
+    # confidence: low — defaulted (no episode pins this)
+    episode_debut: 1
+    page_debut: 1
+
+  - source: komona
+    target: hereva
+    kind: located_in
+    # confidence: low — defaulted
+    episode_debut: 3
+    page_debut: 1
