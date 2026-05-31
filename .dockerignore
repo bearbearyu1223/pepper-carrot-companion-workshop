@@ -1,0 +1,44 @@
+# Keep the Docker build context tiny and predictable.
+
+# Source-control + editor metadata
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+
+# Local env files — NEVER bake secrets into the image. Production values
+# come from Fly secrets at runtime, not from .env.
+.env
+.env.*
+!.env.production.example
+
+# Python cache + venv
+__pycache__
+*.py[cod]
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Frontend — Cloudflare Pages builds it separately
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Data that doesn't belong in the image
+data/postgres
+data/raw
+# Episode page images live on R2 in prod; the build context skips them.
+data/images
+# The Dockerfile DOES copy data/seed.sql, data/chroma, and data/world-graph.
+# Nothing to ignore there.
+
+# Local-only conveniences
+docs
+notes
+.claude
+
+# OS junk
+.DS_Store
+Thumbs.db

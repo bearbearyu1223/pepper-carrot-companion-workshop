@@ -2,6 +2,9 @@
 .env
 .env.local
 .env.*.local
+# .env.production is for the Fly deploy (Post 10) — never commit it.
+# The committed template is .env.production.example.
+.env.production
 
 # Python
 __pycache__/
@@ -30,6 +33,11 @@ data/postgres/
 data/images/
 data/raw/ep*/
 data/chroma/
+
+# Post 10 — the Fly Docker build bakes data/seed.sql produced by
+# infra/dump_seed.sh. The dump is generated from local Postgres and rebuilt
+# on every redeploy; never commit it.
+data/seed.sql
 
 # World-graph: the YAML pair + image manifest ARE committed (small, durable,
 # version-controlled). The scraped image bytes are NOT — anyone can re-run
