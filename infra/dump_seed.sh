@@ -33,3 +33,20 @@ pg_dump \
 
 size=$(wc -c < "$DUMP_TARGET" | tr -d ' ')
 echo "[dump_seed] Wrote $DUMP_TARGET ($size bytes)."
+
+# Cheap sanity check — a dump with zero INSERT lines means dump_seed.sh ran
+# against an empty local DB. The deploy will still go through, but the
+# deployed app will have no episodes. Warn early rather than have the reader
+# discover an empty episode picker after fly deploy.
+insert_count=$(grep -c "^INSERT INTO " "$DUMP_TARGET" || true)
+if [ "$insert_count" -eq 0 ]; then
+    echo ""
+    echo "[dump_seed] WARNING: 0 INSERT statements in the dump."
+    echo "[dump_seed] Your local Postgres has schema but no data."
+    echo "[dump_seed] Did you forget to ingest at least one episode + the wiki summaries"
+    echo "[dump_seed] + the world-graph YAML before running this? See README.md Steps 7–11."
+    echo "[dump_seed] You CAN proceed to fly deploy, but the deployed app will be empty."
+else
+    echo "[dump_seed] $insert_count INSERT statements captured."
+    echo "[dump_seed] Next: fly deploy"
+fi

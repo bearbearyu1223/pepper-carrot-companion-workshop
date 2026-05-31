@@ -47,7 +47,11 @@ COPY backend/alembic.ini /app/alembic.ini
 COPY data/chroma /app/data/chroma
 COPY data/world-graph /app/data/world-graph
 
-# DB seed produced by infra/dump_seed.sh before `fly deploy`.
+# DB seed produced by infra/dump_seed.sh before `fly deploy`. If this COPY
+# fails with "no source files were specified for source: data/seed.sql",
+# you skipped Step 4 of docs/deployment.md — run `./infra/dump_seed.sh`
+# from the repo root first, then re-run `fly deploy`. The canonical pattern
+# is `./infra/dump_seed.sh && fly deploy` so the two steps stay ordered.
 COPY data/seed.sql /app/data/seed.sql
 
 COPY infra/entrypoint.sh /app/entrypoint.sh

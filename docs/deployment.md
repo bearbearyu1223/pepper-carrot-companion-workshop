@@ -252,11 +252,20 @@ it on first boot. Generate the dump from your local Postgres:
 ./infra/dump_seed.sh
 ```
 
-This writes `data/seed.sql` (~1 MB of schema + data, gitignored).
+This writes `data/seed.sql` (~1 MB of schema + data, gitignored). The
+script prints how many `INSERT` statements were captured — if it says
+`0 INSERT statements`, your local Postgres has the schema but no data,
+and you should go back to README Steps 7–11 before deploying.
 
 **Re-run this any time your local DB changes** — after ingesting a new
 episode, editing the world-graph YAML, fixing a character description,
 etc. Then `fly deploy` rebuilds the image with the new seed.
+
+> **The canonical pattern is `./infra/dump_seed.sh && fly deploy`** as a
+> single chained command (see Step 5). The Dockerfile's `COPY data/seed.sql`
+> line will fail with a Docker-side `no source files were specified`
+> error if you skip the dump — chaining them removes the ordering
+> footgun entirely.
 
 > **Why bake the seed in?** Most production setups would `psql -f
 > seed.sql` from a CI step. We bake it in to keep the demo deploy a
@@ -294,10 +303,11 @@ fly secrets set \
   CORS_ORIGINS="$CORS_ORIGINS"
 ```
 
-Then:
+Then deploy. **Chain `dump_seed.sh` to `fly deploy`** so a fresh dump
+is guaranteed to be on disk for the Docker build to pick up:
 
 ```bash
-fly deploy
+./infra/dump_seed.sh && fly deploy
 ```
 
 What happens on the first deploy:
@@ -418,6 +428,8 @@ external).
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `fly deploy` errors at build with `COPY failed: no source files were specified for source: data/seed.sql` | Step 4 (`./infra/dump_seed.sh`) was skipped or run from the wrong directory | Run `./infra/dump_seed.sh && fly deploy` from the repo root. If the dump prints `0 INSERT statements`, your local Postgres is empty — go back to README Steps 7–11 first. |
+| `/api/episodes` returns `[]` from the deployed backend | `dump_seed.sh` ran against an empty local Postgres | Re-ingest at least Episode 1 locally, re-run `./infra/dump_seed.sh && fly deploy`. |
 | `/health` 200 but `/api/episodes` 500 | DB URL wrong | Re-check `DATABASE_URL_OVERRIDE` (unpooled, `postgresql+asyncpg://…?sslmode=require`). `fly logs` shows the asyncpg error. |
 | `psql: invalid connection option` in `fly logs` | `POSTGRES_RESTORE_URL` has wrong scheme | Re-set with `postgresql://…` |
 | `prepared statement "__asyncpg_stmt…" does not exist` | Used the **pooled** endpoint for `DATABASE_URL_OVERRIDE` | Switch to unpooled (drop `-pooler` from the hostname) |

@@ -369,14 +369,20 @@ costs, where the Post 3 abstractions finally cash in — is in
 A one-paragraph summary of the moving parts:
 
 ```bash
-cp .env.production.example .env.production    # fill in 11 values
-modal deploy infra/modal_ollama.py            # GPU-served Ollama
-./infra/dump_seed.sh                          # local Postgres → data/seed.sql
-fly launch --no-deploy --copy-config          # uses the committed fly.toml
-fly secrets set …                             # push .env.production to Fly
-fly deploy                                    # container build + deploy
+cp .env.production.example .env.production       # fill in 11 values
+modal deploy infra/modal_ollama.py               # GPU-served Ollama
+fly launch --no-deploy --copy-config             # uses the committed fly.toml
+fly secrets set …                                # push .env.production to Fly
+./infra/dump_seed.sh && fly deploy               # dump + build + deploy (chained)
 # then point Cloudflare Pages at the repo with VITE_API_BASE_URL set.
 ```
+
+> Why `./infra/dump_seed.sh && fly deploy` as one command? The Dockerfile
+> `COPY`s `data/seed.sql` into the image, so the seed has to exist before
+> `fly deploy` reads the build context. Chaining them removes the
+> ordering footgun. `dump_seed.sh` prints how many `INSERT` statements
+> it captured — if it says `0`, your local Postgres is empty and you
+> should ingest at least Episode 1 before deploying.
 
 The architecture decisions are documented in
 [`docs/decisions/0004-cloud-deployment.md`](docs/decisions/0004-cloud-deployment.md).
