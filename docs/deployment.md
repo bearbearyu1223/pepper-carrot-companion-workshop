@@ -421,10 +421,13 @@ If chat + the world graph both work end-to-end, the demo is live.
 
 ### Re-deploying after ingestion changes
 
-You added a new episode locally. To reflect it in prod:
+You changed what's ingested locally — a new episode, or edited wiki
+summaries (`cd ingestion && uv run python ingest_wiki.py`, which rebuilds
+the `wiki_v1` Chroma collection and the `wiki_articles` rows). To reflect
+it in prod:
 
 ```bash
-# 1. Re-dump the seed (picks up the new episode rows + new chunks).
+# 1. Re-dump the seed (picks up the new episode/wiki rows in Postgres).
 ./infra/dump_seed.sh
 
 # 2. Upload the new episode's images to R2 (additive — copy never deletes,
@@ -442,6 +445,16 @@ restore. The Chroma directory inside the image, however, is replaced — so
 new episodes' embeddings come along for the ride. **You can't add new
 episodes without redeploying the backend** (Chroma is baked, not
 external).
+
+> **`fly deploy` rebuilds the image; `fly secrets set` does not.** Chroma
+> (`pages_v1` + `wiki_v1`) and `data/seed.sql` are baked into the image at
+> build time, so they only refresh on a real `fly deploy`. Setting a secret
+> redeploys the **existing** image — correct for config, useless for
+> picking up new ingestion. The trap: you ingest the wiki, "redeploy" by
+> setting a secret, and chat still answers wiki questions from the model's
+> general knowledge (e.g. *"Pepper is a SoftBank robot"*) because the baked
+> `wiki_v1` is still the old, empty one. Whenever you've re-ingested,
+> finish with a real `fly deploy`.
 
 ### Pruning stale uploads from R2 {#pruning-stale-uploads-from-r2}
 
@@ -592,11 +605,13 @@ end-to-end test (Step 7) are also unchanged.
 | `psql: invalid connection option` in `fly logs` | `POSTGRES_RESTORE_URL` has wrong scheme | Re-set with `postgresql://…` |
 | `prepared statement "__asyncpg_stmt…" does not exist` | Used the **pooled** endpoint for `DATABASE_URL_OVERRIDE` | Switch to unpooled (drop `-pooler` from the hostname) |
 | Browser shows "CORS error" | `CORS_ORIGINS` doesn't match the Pages URL exactly | `fly secrets set CORS_ORIGINS='["https://exact-pages-url"]'` |
-| Episode covers / pages broken in browser | R2 keys are wrong, or `R2_PUBLIC_URL_PREFIX` mismatched | `rclone ls r2:peppercarrot-images \| head` and compare to `pages.image_url` in DB |
+| Episode covers / pages broken in browser, **every** image returns HTTP 403 (not 404) | R2.dev **public access is disabled** for the bucket. A uniform 403 across every object — covers, pages, world-graph art, even the bucket root — is the signature (a *missing* object returns 404, not 403) | The objects are fine; the bucket isn't public. Cloudflare dashboard → R2 → bucket → **Settings** → **Public access** → **R2.dev subdomain** → **Allow Access**. Then confirm the `pub-XXXX.r2.dev` hash matches `R2_PUBLIC_URL_PREFIX`; if it differs, `fly secrets set R2_PUBLIC_URL_PREFIX='https://pub-XXXX.r2.dev'`. Verify uploads exist independently with `rclone size r2:peppercarrot-images`. |
+| Episode covers / pages broken in browser, individual images return 404 | R2 keys are wrong, or `R2_PUBLIC_URL_PREFIX` mismatched | `rclone ls r2:peppercarrot-images \| head` and compare to `pages.image_url` in DB |
 | R2 bucket still contains episodes you no longer have locally | `rclone copy` is additive and never deletes | Use `rclone sync` instead — see [Pruning stale uploads from R2](#pruning-stale-uploads-from-r2). Always run with `--dry-run` first. |
 | `.DS_Store` files publicly readable on the bucket prefix | macOS Finder writes them; an earlier `rclone copy` without `--exclude` swept them in | `rclone delete r2:peppercarrot-images --include "**/.DS_Store" --include ".DS_Store"`. Add the `--exclude ".DS_Store"` flag to every future `rclone copy` / `sync`. |
 | Chat 401s | Modal proxy auth tokens don't match | Regenerate in Modal dashboard, `fly secrets set MODAL_PROXY_TOKEN_ID=… MODAL_PROXY_TOKEN_SECRET=…` |
 | First chat message hangs ~30s | Modal cold start | Expected. Subsequent messages within `scaledown_window` (5 min) are instant. |
+| Wiki/chat answers from general knowledge (e.g. *"Pepper is a SoftBank robot"*) instead of P&C lore | The deployed image's baked `wiki_v1` is stale or empty — wiki was ingested *after* the last real `fly deploy`, or you only "redeployed" via `fly secrets set` (which doesn't rebuild the image) | Confirm the local collection has docs: `cd backend && uv run python -c "import chromadb; print(chromadb.PersistentClient(path='../data/chroma').get_collection('wiki_v1').count())"` (want > 0), then re-bake with a real `fly deploy`. |
 | `fly logs` shows app-startup tracebacks | Config issue — wrong env value, missing secret | The traceback's last few lines name the failing field; cross-check `.env.production`. |
 
 If you hit something not in this table, `fly logs --no-tail | tail -50`
