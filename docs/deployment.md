@@ -277,10 +277,11 @@ it on first boot. Generate the dump from your local Postgres:
 ./infra/dump_seed.sh
 ```
 
-This writes `data/seed.sql` (~1 MB of schema + data, gitignored). The
-script prints how many `INSERT` statements were captured — if it says
-`0 INSERT statements`, your local Postgres has the schema but no data,
-and you should go back to README Steps 7–11 before deploying.
+This writes `data/seed.sql` (a few hundred KB of schema + data,
+gitignored). The script prints how many tables and data rows were
+captured — if it says `0 data rows (schema only)`, your local Postgres
+has the schema but no data, and you should go back to README
+Steps 7–11 before deploying.
 
 **Re-run this any time your local DB changes** — after ingesting a new
 episode, editing the world-graph YAML, fixing a character description,
@@ -575,7 +576,7 @@ end-to-end test (Step 7) are also unchanged.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `fly deploy` errors at build with `COPY failed: no source files were specified for source: data/seed.sql` | Step 4 (`./infra/dump_seed.sh`) was skipped or run from the wrong directory | Run `./infra/dump_seed.sh && fly deploy` from the repo root. If the dump prints `0 INSERT statements`, your local Postgres is empty — go back to README Steps 7–11 first. |
+| `fly deploy` errors at build with `COPY failed: no source files were specified for source: data/seed.sql` | Step 4 (`./infra/dump_seed.sh`) was skipped or run from the wrong directory | Run `./infra/dump_seed.sh && fly deploy` from the repo root. If the dump prints `0 data rows (schema only)`, your local Postgres is empty — go back to README Steps 7–11 first. |
 | `/api/episodes` returns `[]` from the deployed backend | `dump_seed.sh` ran against an empty local Postgres | Re-ingest at least Episode 1 locally, re-run `./infra/dump_seed.sh && fly deploy`. |
 | `/health` 200 but `/api/episodes` 500 | DB URL wrong | Re-check `DATABASE_URL_OVERRIDE` (unpooled, `postgresql+asyncpg://…?sslmode=require`). `fly logs` shows the asyncpg error. |
 | `psql: invalid connection option` in `fly logs` | `POSTGRES_RESTORE_URL` has wrong scheme | Re-set with `postgresql://…` |

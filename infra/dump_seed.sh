@@ -34,19 +34,34 @@ pg_dump \
 size=$(wc -c < "$DUMP_TARGET" | tr -d ' ')
 echo "[dump_seed] Wrote $DUMP_TARGET ($size bytes)."
 
-# Cheap sanity check — a dump with zero INSERT lines means dump_seed.sh ran
-# against an empty local DB. The deploy will still go through, but the
-# deployed app will have no episodes. Warn early rather than have the reader
-# discover an empty episode picker after fly deploy.
+# Cheap sanity check — a dump against an empty local DB still emits the
+# schema (CREATE TABLE, ALTER TABLE, etc.) but no data rows. Warn so the
+# operator notices before fly deploy lands an empty episode picker.
+#
+# pg_dump's plain format uses COPY (not INSERT) for data by default, so
+# we count actual data rows between `COPY ... FROM stdin;` markers and
+# the `\.` terminator. We also count INSERT statements as a fallback for
+# the rare case someone passes --inserts to pg_dump explicitly.
+data_rows=$(awk '
+    /^COPY .* FROM stdin;$/ { in_copy=1; next }
+    /^\\\.$/                { in_copy=0; next }
+    in_copy && NF > 0       { count++ }
+    END                     { print count+0 }
+' "$DUMP_TARGET")
+# `grep -c` prints "0" AND exits status 1 on no matches; `|| true` lets
+# `set -e` survive the status-1 case without grep adding a second line.
+copy_count=$(grep -c "^COPY " "$DUMP_TARGET" || true)
 insert_count=$(grep -c "^INSERT INTO " "$DUMP_TARGET" || true)
-if [ "$insert_count" -eq 0 ]; then
+total_data=$((data_rows + insert_count))
+
+if [ "$total_data" -eq 0 ]; then
     echo ""
-    echo "[dump_seed] WARNING: 0 INSERT statements in the dump."
+    echo "[dump_seed] WARNING: 0 data rows in the dump (schema only)."
     echo "[dump_seed] Your local Postgres has schema but no data."
     echo "[dump_seed] Did you forget to ingest at least one episode + the wiki summaries"
     echo "[dump_seed] + the world-graph YAML before running this? See README.md Steps 7–11."
     echo "[dump_seed] You CAN proceed to fly deploy, but the deployed app will be empty."
 else
-    echo "[dump_seed] $insert_count INSERT statements captured."
+    echo "[dump_seed] Captured $copy_count tables, $data_rows data rows."
     echo "[dump_seed] Next: fly deploy"
 fi
