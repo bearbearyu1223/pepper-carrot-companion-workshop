@@ -11,6 +11,7 @@ live in the full project repository.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -38,28 +39,49 @@ from app.retrieval.service import CollectionNotReadyError, RetrievalService  # n
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialize the DB engine and chat orchestrator on startup; dispose on shutdown."""
+    """Initialize the DB engine on startup; build the chat stack in the background.
+
+    uvicorn binds the listening socket only *after* this startup phase returns,
+    so anything slow here delays the bind. Constructing `RetrievalService` opens
+    the baked Chroma index synchronously, and on a small VM that load is slow
+    enough that Fly's deploy-time listen check fires before the socket is up
+    ("not listening on the expected address"). So we do only the cheap work
+    (engine init) inline and build the Chroma-backed orchestrator in a background
+    task: `/health` and `/api/episodes` serve immediately, and the chat route
+    returns a 503 for the brief window until the orchestrator is ready.
+    """
     settings = get_settings()
     init_engine(settings.database_url)
+    app.state.chat_orchestrator = None
 
-    # Build the chat stack once. `RetrievalService` holds a Chroma client; the
-    # embedding model loads lazily on first query. If no episode has been
-    # ingested yet, `pages_v1` doesn't exist — degrade gracefully so the
-    # episodes API still serves, and the chat endpoint returns a clear 503.
+    async def _build_chat_stack() -> None:
+        # `RetrievalService` holds a Chroma client; the embedding model loads
+        # lazily on first query. If no episode has been ingested yet, `pages_v1`
+        # doesn't exist — degrade gracefully so the episodes API still serves and
+        # the chat endpoint returns a clear 503. The constructor opens the index
+        # synchronously, so run it off the event loop to keep `/health`
+        # responsive while it loads.
+        try:
+            retrieval = await asyncio.to_thread(
+                RetrievalService,
+                settings.chroma_persist_dir,
+                get_embedding_client(settings),
+            )
+            app.state.chat_orchestrator = ChatOrchestrator(
+                get_chat_client(settings), retrieval
+            )
+            logger.info("Chat orchestrator ready (page-mode retrieval).")
+        except CollectionNotReadyError as exc:
+            logger.warning("Chat disabled — %s", exc)
+        except Exception:  # never let a startup failure crash the whole app
+            logger.exception("Failed to build the chat orchestrator.")
+
+    build_task = asyncio.create_task(_build_chat_stack())
     try:
-        retrieval = RetrievalService(
-            settings.chroma_persist_dir, get_embedding_client(settings)
-        )
-        app.state.chat_orchestrator = ChatOrchestrator(
-            get_chat_client(settings), retrieval
-        )
-        logger.info("Chat orchestrator ready (page-mode retrieval).")
-    except CollectionNotReadyError as exc:
-        app.state.chat_orchestrator = None
-        logger.warning("Chat disabled — %s", exc)
-
-    yield
-    await close_engine()
+        yield
+    finally:
+        build_task.cancel()
+        await close_engine()
 
 
 def create_app() -> FastAPI:
