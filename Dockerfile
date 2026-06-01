@@ -7,7 +7,9 @@
 #       data/seed.sql        — produced by infra/dump_seed.sh before `fly deploy`.
 #       data/chroma          — the embedded vector store (pages_v1 + wiki_v1).
 #       data/world-graph     — entities.yaml + relationships.yaml + image_manifest.json.
-#   • The entrypoint that restores seed.sql on first boot, then exec's uvicorn.
+#   • The entrypoint: `entrypoint.sh seed` (run as Fly's release_command)
+#     restores seed.sql into a fresh Neon DB before the app boots; with no
+#     args it exec's uvicorn straight away so the socket binds immediately.
 #
 # Episode images are NOT baked — they go to Cloudflare R2 (STORAGE_BACKEND=r2).
 # See docs/deployment.md for the end-to-end deploy.
@@ -25,7 +27,8 @@ RUN uv sync --frozen --no-dev
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# psql is needed by infra/entrypoint.sh to restore data/seed.sql on first boot.
+# psql is needed by infra/entrypoint.sh to restore data/seed.sql in the
+# release_command (`entrypoint.sh seed`).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*

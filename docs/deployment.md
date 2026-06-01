@@ -270,8 +270,9 @@ You want HTTP 200 with JSON listing both models.
 
 ## Step 4 — Dump the Postgres seed
 
-The Docker image bakes in `data/seed.sql` and the entrypoint restores
-it on first boot. Generate the dump from your local Postgres:
+The Docker image bakes in `data/seed.sql`, and Fly's `release_command`
+restores it into a fresh Neon DB — in a temporary release machine, before
+the app machine boots. Generate the dump from your local Postgres:
 
 ```bash
 ./infra/dump_seed.sh
@@ -346,9 +347,14 @@ What happens on the first deploy:
    `data/seed.sql`, `data/chroma/`, `data/world-graph/`).
 2. Image pushed to Fly's registry (~2 min for the first push, faster
    on subsequent deploys thanks to layer cache).
-3. A 512 MB shared-CPU machine boots. `entrypoint.sh` notices the
-   empty Neon DB, runs `psql < /app/data/seed.sql`, then starts
-   uvicorn.
+3. Fly runs the `release_command` in a temporary machine:
+   `entrypoint.sh seed` notices the empty Neon DB and runs
+   `psql < /app/data/seed.sql`. (On a re-deploy it finds the
+   `episodes` table already there and skips.)
+4. The 512 MB shared-CPU app machine boots and `entrypoint.sh` (no
+   args) `exec`s uvicorn straight away — no seed step in the boot path,
+   so the socket binds on `0.0.0.0:8000` immediately and Fly's listen
+   check never races a slow first boot.
 
 **Verify:**
 
@@ -431,9 +437,9 @@ rclone copy data/images r2:peppercarrot-images --progress \
 fly deploy
 ```
 
-The entrypoint sees an already-seeded Neon and skips the SQL restore.
-The Chroma directory inside the image, however, is replaced — so new
-episodes' embeddings come along for the ride. **You can't add new
+The `release_command` sees an already-seeded Neon and skips the SQL
+restore. The Chroma directory inside the image, however, is replaced — so
+new episodes' embeddings come along for the ride. **You can't add new
 episodes without redeploying the backend** (Chroma is baked, not
 external).
 
