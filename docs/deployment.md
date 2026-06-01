@@ -440,21 +440,62 @@ rclone copy data/images r2:peppercarrot-images --progress \
 fly deploy
 ```
 
-The `release_command` sees an already-seeded Neon and skips the SQL
-restore. The Chroma directory inside the image, however, is replaced — so
-new episodes' embeddings come along for the ride. **You can't add new
-episodes without redeploying the backend** (Chroma is baked, not
-external).
+On a redeploy, the `release_command` sees an already-seeded Neon and
+**skips the SQL restore**. The Chroma directory inside the image, however,
+is replaced — so new episodes' embeddings come along for the ride. That
+asymmetry is the thing to internalize: **`fly deploy` refreshes the baked
+data, but it does NOT refresh the data already in Neon.**
 
-> **`fly deploy` rebuilds the image; `fly secrets set` does not.** Chroma
-> (`pages_v1` + `wiki_v1`) and `data/seed.sql` are baked into the image at
-> build time, so they only refresh on a real `fly deploy`. Setting a secret
-> redeploys the **existing** image — correct for config, useless for
-> picking up new ingestion. The trap: you ingest the wiki, "redeploy" by
-> setting a secret, and chat still answers wiki questions from the model's
-> general knowledge (e.g. *"Pepper is a SoftBank robot"*) because the baked
-> `wiki_v1` is still the old, empty one. Whenever you've re-ingested,
-> finish with a real `fly deploy`.
+> **What a redeploy does and doesn't update.**
+> - **Chroma (`pages_v1` + `wiki_v1`)** and the image's **`data/seed.sql`**
+>   are baked in at build time → refreshed on every real `fly deploy`.
+> - **Postgres data already in Neon** (`episodes`, `pages`,
+>   `wiki_articles` text, `characters`) is restored **only once**, on the
+>   first boot of an empty DB. The release_command is skip-on-existing, so
+>   a redeploy never rewrites it.
+> - **`fly secrets set`** redeploys the *existing* image — it rebuilds
+>   nothing. Correct for config, useless for picking up new ingestion.
+>
+> The trap that bites hardest: you re-ingest the wiki, `fly deploy`, and
+> chat *still* answers from the model's general knowledge (*"Pepper is a
+> SoftBank robot"*). Retrieval is working — the rebuilt `wiki_v1` returns
+> chunk IDs — but the **text** lives in `wiki_articles` in Neon, which the
+> deploy never touched, so the grounding lookup finds nothing. Tell-tale
+> sign: the chat's `done` event lists `retrieved_doc_ids`, yet the answer
+> is ungrounded.
+
+To push a **Postgres content change** (edited wiki summaries, a fixed
+character bio, trimmed episodes) into an already-seeded Neon, update Neon
+directly — the redeploy won't do it for you. Two options:
+
+```bash
+set -a && source .env.production && set +a
+LOCAL="postgresql://peppercarrot:peppercarrot_dev@localhost:5432/peppercarrot"
+
+# Option A — surgical: replace just the table you changed (here, wiki text).
+#   Atomically swaps the local rows into Neon. No redeploy needed; the
+#   orchestrator reads Neon live. (BEGIN/COMMIT means a failed load rolls
+#   back, leaving the old rows intact rather than an empty table.)
+pg_dump "$LOCAL" --table=wiki_articles --data-only --no-owner --no-acl \
+    --no-privileges > /tmp/wiki_articles.sql
+{ echo "BEGIN; DELETE FROM wiki_articles;"; cat /tmp/wiki_articles.sql; echo "COMMIT;"; } \
+    | psql "$POSTGRES_RESTORE_URL" -v ON_ERROR_STOP=1
+# Verify — schema-qualify the table: pg_dump emits `set_config('search_path','')`,
+# which leaks on Neon's POOLED endpoint and makes a bare name "not exist".
+psql "$POSTGRES_RESTORE_URL" -tAc "SELECT count(*) FROM public.wiki_articles;"
+
+# Option B — clean slate: re-dump, wipe Neon, redeploy (full re-seed).
+#   Heavier, but guarantees Neon == local across every table.
+./infra/dump_seed.sh
+psql "$POSTGRES_RESTORE_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+fly deploy
+```
+
+> **Keep Chroma and Postgres from the same ingest.** The rebuilt Chroma
+> stores `source_id`s that must exist in Neon's `wiki_articles` / `pages`.
+> Refresh Chroma (via `fly deploy`) and Postgres (via one of the options
+> above) from the **same** local state, or the retrieval → text lookup
+> silently returns empty and the chat answers ungrounded.
 
 ### Pruning stale uploads from R2 {#pruning-stale-uploads-from-r2}
 
@@ -611,7 +652,8 @@ end-to-end test (Step 7) are also unchanged.
 | `.DS_Store` files publicly readable on the bucket prefix | macOS Finder writes them; an earlier `rclone copy` without `--exclude` swept them in | `rclone delete r2:peppercarrot-images --include "**/.DS_Store" --include ".DS_Store"`. Add the `--exclude ".DS_Store"` flag to every future `rclone copy` / `sync`. |
 | Chat 401s | Modal proxy auth tokens don't match | Regenerate in Modal dashboard, `fly secrets set MODAL_PROXY_TOKEN_ID=… MODAL_PROXY_TOKEN_SECRET=…` |
 | First chat message hangs ~30s | Modal cold start | Expected. Subsequent messages within `scaledown_window` (5 min) are instant. |
-| Wiki/chat answers from general knowledge (e.g. *"Pepper is a SoftBank robot"*) instead of P&C lore | The deployed image's baked `wiki_v1` is stale or empty — wiki was ingested *after* the last real `fly deploy`, or you only "redeployed" via `fly secrets set` (which doesn't rebuild the image) | Confirm the local collection has docs: `cd backend && uv run python -c "import chromadb; print(chromadb.PersistentClient(path='../data/chroma').get_collection('wiki_v1').count())"` (want > 0), then re-bake with a real `fly deploy`. |
+| Wiki/chat answers from general knowledge (*"Pepper is a SoftBank robot"*), `done` event has **empty** `retrieved_doc_ids` | Baked `wiki_v1` is stale/empty — wiki ingested after the last real `fly deploy`, or you only "redeployed" via `fly secrets set` (no image rebuild) | Confirm local has docs: `cd backend && uv run python -c "import chromadb; print(chromadb.PersistentClient(path='../data/chroma').get_collection('wiki_v1').count())"` (> 0), then re-bake with a real `fly deploy`. |
+| Same ungrounded answer, but `done` event **lists** `retrieved_doc_ids` | Retrieval works; the grounding **text** lives in `wiki_articles` in Neon, which a redeploy never refreshes (seed is skip-on-existing). Neon's rows are stale/missing the retrieved IDs | Sync the table into Neon — see [Re-deploying after ingestion changes](#re-deploying-after-ingestion-changes), Option A (`pg_dump --table=wiki_articles … \| psql "$POSTGRES_RESTORE_URL"`). |
 | `fly logs` shows app-startup tracebacks | Config issue — wrong env value, missing secret | The traceback's last few lines name the failing field; cross-check `.env.production`. |
 
 If you hit something not in this table, `fly logs --no-tail | tail -50`

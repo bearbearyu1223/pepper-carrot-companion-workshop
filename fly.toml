@@ -47,7 +47,13 @@ primary_region = 'iad'
     path = '/health'
     interval = '15s'
     timeout = '5s'
-    grace_period = '10s'
+    # 30s, not 10s: a wake-from-zero cold start (Firecracker VM boot + Python
+    # start) takes ~10s, which brushed the old 10s grace and made the check
+    # flap on every deploy ("Health check ... has failed"). 30s clears the
+    # cold start comfortably. A check showing "warning: machine hasn't started"
+    # while idle is normal for a scale-to-zero app — the check can't run on a
+    # stopped machine; the next request wakes it and it passes.
+    grace_period = '30s'
 
 [[vm]]
   memory = '512mb'
