@@ -14,8 +14,11 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30",
     "alembic>=1.14",
-    # Vector store
-    "chromadb>=0.5",
+    # Vector store. Pinned exact and kept in lockstep with ingestion's pin:
+    # ingestion writes the index, the backend reads it, and a version skew
+    # between writer and reader can make collections unreadable. See
+    # ingestion/pyproject.toml.
+    "chromadb==1.5.9",
     # Image processing
     "pillow>=11",
     "blurhash>=1.1",

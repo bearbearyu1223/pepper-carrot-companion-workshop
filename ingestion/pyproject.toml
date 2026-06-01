@@ -12,6 +12,10 @@ dependencies = [
     # Ingestion-specific
     "click>=8.1",
     "tqdm>=4.66",
+    # Vector store — imported directly by chroma_writer.py. Pinned to the SAME
+    # exact version as backend (this is the *writer*; backend is the *reader*)
+    # so they never disagree on Chroma's on-disk format. Keep both in sync.
+    "chromadb==1.5.9",
     # Wiki ingestion (Post 9) — parses .md files with YAML frontmatter.
     "python-frontmatter>=1.1",
 ]
