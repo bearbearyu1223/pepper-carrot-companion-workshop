@@ -5,7 +5,7 @@
 # (DATABASE_URL_OVERRIDE, R2_*, MODAL_*, etc.) are pushed separately via
 # `fly secrets set`. See docs/deployment.md.
 
-app = 'peppercarrot-companion-mellowed-field-3227'
+app = 'pepper-carrot-ai-flipbook-workshop'
 primary_region = 'iad'
 
 [build]

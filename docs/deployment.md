@@ -305,11 +305,15 @@ etc. Then `fly deploy` rebuilds the image with the new seed.
 
 ```bash
 fly auth login
-fly launch --no-deploy --copy-config --name peppercarrot-companion
+fly launch --no-deploy --copy-config
 ```
 
-`--copy-config` reuses the committed `fly.toml`; the launch wizard
-will decline to create a Postgres or Redis (we have Neon already).
+`--copy-config` reuses the committed `fly.toml`, so the **app name comes
+from that file** (`app = 'pepper-carrot-ai-flipbook-workshop'` in this
+repo). Fly app names are global, so if that one is taken, edit `app =` in
+`fly.toml` to something unique and use your name as the hostname
+everywhere below. The launch wizard will decline to create a Postgres or
+Redis (we have Neon already).
 
 **Push every secret in `.env.production` to Fly in one shot:**
 
@@ -349,10 +353,10 @@ What happens on the first deploy:
 **Verify:**
 
 ```bash
-curl https://peppercarrot-companion.fly.dev/health
+curl https://pepper-carrot-ai-flipbook-workshop.fly.dev/health
 # {"status":"ok"}
 
-curl https://peppercarrot-companion.fly.dev/api/episodes | head -c 300
+curl https://pepper-carrot-ai-flipbook-workshop.fly.dev/api/episodes | head -c 300
 # JSON array of episode metadata
 ```
 
@@ -371,7 +375,7 @@ most likely a database URL issue (see Troubleshooting).
    - Build output directory: `frontend/dist`
    - Root directory: leave blank
 3. **Environment variables** (Build settings → Environment variables → add):
-   - `VITE_API_BASE_URL` = `https://peppercarrot-companion.fly.dev`
+   - `VITE_API_BASE_URL` = `https://pepper-carrot-ai-flipbook-workshop.fly.dev`
 
    Vite inlines this at build time, so the deployed JS calls your Fly
    backend directly. **Without this var, the frontend will try to call
