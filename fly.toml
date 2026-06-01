@@ -1,7 +1,9 @@
-# fly.toml app configuration file generated for peppercarrot-companion-mellowed-field-3227 on 2026-05-31T17:08:14-07:00
+# Fly.io app config — Post 10.
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# A small shared-CPU machine that scales to zero when idle, wakes on the
+# next request, and serves the FastAPI backend behind https. Secrets
+# (DATABASE_URL_OVERRIDE, R2_*, MODAL_*, etc.) are pushed separately via
+# `fly secrets set`. See docs/deployment.md.
 
 app = 'peppercarrot-companion-mellowed-field-3227'
 primary_region = 'iad'
@@ -9,17 +11,22 @@ primary_region = 'iad'
 [build]
   dockerfile = 'Dockerfile'
 
+# Non-secret env vars that select the production providers. The seam was
+# built in Post 3; these three lines are what flip the runtime onto
+# Modal-hosted Ollama and R2-hosted images.
 [env]
   CHAT_PROVIDER = 'ollama'
-  EMBEDDING_MODEL = 'bge-m3'
   EMBEDDING_PROVIDER = 'ollama'
-  LOG_LEVEL = 'INFO'
+  EMBEDDING_MODEL = 'bge-m3'
   OLLAMA_CHAT_MODEL = 'qwen2.5:7b'
   STORAGE_BACKEND = 'r2'
+  LOG_LEVEL = 'INFO'
 
 [http_service]
   internal_port = 8000
   force_https = true
+  # Scale-to-zero: Fly stops the machine when no requests have arrived for
+  # a few minutes, and wakes it on the next inbound. Free for a sleepy demo.
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
