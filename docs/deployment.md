@@ -382,13 +382,13 @@ most likely a database URL issue (see Troubleshooting).
    `localhost:8000`** and break in the browser.
 
 4. **Save and Deploy.** Cloudflare prints a URL like
-   `https://peppercarrot-companion-app.pages.dev`.
+   `https://pepper-carrot-ai-flipbook-workshop.pages.dev`.
 
 5. **Update `CORS_ORIGINS` on Fly** to match this URL exactly (no
    trailing slash, scheme included), then redeploy:
 
    ```bash
-   fly secrets set CORS_ORIGINS='["https://peppercarrot-companion-app.pages.dev"]'
+   fly secrets set CORS_ORIGINS='["https://pepper-carrot-ai-flipbook-workshop.pages.dev"]'
    ```
 
    Fly redeploys automatically when secrets change.
