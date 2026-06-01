@@ -2,9 +2,13 @@
 .env
 .env.local
 .env.*.local
-# .env.production is for the Fly deploy (Post 10) — never commit it.
-# The committed template is .env.production.example.
+# .env.production* is for the Fly deploy (Post 10/11) — never commit it
+# (covers .env.production, .env.production.modal, .env.production.*.bak, etc).
+# The only committed templates are the two .example files, un-ignored below.
 .env.production
+.env.production.*
+!.env.production.example
+!.env.production.anthropic.example
 
 # Python
 __pycache__/

@@ -211,7 +211,7 @@ def _make_voyage_client(transport: httpx.MockTransport) -> VoyageEmbeddingClient
     """VoyageEmbeddingClient with the mock transport wired in through the
     constructor's `transport` parameter — the standard httpx seam for tests."""
     return VoyageEmbeddingClient(
-        api_key="vk-test", model="voyage-3-lite", transport=transport
+        api_key="vk-test", model="voyage-4-lite", transport=transport
     )
 
 
@@ -256,7 +256,7 @@ class TestVoyageEmbeddingClient:
         req = captured[0]
         assert req["url"].endswith("/embeddings")
         assert req["headers"].get("authorization") == "Bearer vk-test"
-        assert req["json"] == {"input": ["alpha", "beta"], "model": "voyage-3-lite"}
+        assert req["json"] == {"input": ["alpha", "beta"], "model": "voyage-4-lite"}
 
     async def test_embed_batch_empty_input_returns_empty(self) -> None:
         c = _make_voyage_client(_voyage_mock_transport(dim=512))

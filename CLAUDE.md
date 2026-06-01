@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 10** (cloud deploy) of the blog series — the full series, end to end, from a fresh laptop to a public URL on Cloudflare Pages + Fly + Modal + R2 + Neon. The deploy infrastructure (`Dockerfile`, `fly.toml`, `infra/`, `.env.production.example`, `docs/deployment.md`, the boto3-backed `R2Storage` implementation) lands in this repo at the `post-10` tag.
+> **About the scope.** This repository contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 11** (managed-API deploy) of the blog series — the full series, end to end, from a fresh laptop to a public URL on Cloudflare Pages + Fly + Modal + R2 + Neon. The deploy infrastructure (`Dockerfile`, `fly.toml`, `infra/`, `.env.production.example`, `docs/deployment.md`, the boto3-backed `R2Storage` implementation) lands in this repo at the `post-10` tag; **Post 11** adds the no-GPU alternative deploy path (`.env.production.anthropic.example`, `docs/deployment-anthropic.md`, `docs/decisions/0005-managed-api-alternative.md`) at the `post-11` tag — config-only, no runtime code change, since `AnthropicChatClient` + `VoyageEmbeddingClient` already shipped at post-10.
 
 ---
 

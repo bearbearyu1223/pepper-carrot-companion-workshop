@@ -1,6 +1,6 @@
 # pepper-carrot-companion-workshop
 
-Companion code for the **Pepper & Carrot AI-powered flipbook** blog series — Posts 2 through 10. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts, from a fresh laptop all the way through a public deploy on Cloudflare Pages + Fly + Modal + R2 + Neon.
+Companion code for the **Pepper & Carrot AI-powered flipbook** blog series — Posts 2 through 11. This repository is the minimum working dev environment a reader needs to reproduce every verification step in the blog posts, from a fresh laptop all the way through a public deploy on Cloudflare Pages + Fly + Modal + R2 + Neon.
 
 - **Post 1 — [When Your Chunks Are Comic Pages](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-trailer/)** *(series introduction; no code)*
 - **Post 2 — [Setting Up the Workshop](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/)** *(Postgres, Ollama, FastAPI scaffold, first Alembic migration, one episode on disk)*
@@ -12,6 +12,7 @@ Companion code for the **Pepper & Carrot AI-powered flipbook** blog series — P
 - **Post 8 — Making Small Models Behave: Wiki Mode and the Long Road to Concise Answers** *(the prompt-engineering pass that closes the gap from "works" to "actually good": a `_strip_markdown` helper on every piece of text entering the prompt, a closed-world grounding contract, a page-mode anti-recitation block, a strict response-format contract, a much sharper suggestion-chip prompt with bad/good examples, and `react-markdown` in the chat panel as the last-line safety net)*
 - **Post 9 — A World Graph Built by a Second Skill: Spoiler-Aware Knowledge Graph Overlay** *(a second Claude Code skill — `extract-world-graph` — walks the seed wiki + page-description JSONs and writes a durable YAML pair, loaded into Postgres by `ingestion/ingest_world_graph.py`; a wiki image scraper pulls character art from framagit; a spoiler-filtered `GET /api/world-graph` route uses Postgres row-value comparison to gate entities and edges to the reader's current page; a React + `@xyflow/react` overlay panel shows avatar nodes with kind-based SVG fallbacks, soft fade-in animation for newly-revealed entities, and an "Ask in wiki mode" button that round-trips through the existing chat panel)*
 - **Post 10 — Shipping It: Cloudflare Pages + Fly + Modal + R2 + Neon for ~$10/mo** *(the `R2Storage` implementation finally lands behind the Post 3 Protocol; a `Dockerfile` + `fly.toml` containerize the FastAPI backend; `infra/modal_ollama.py` runs Ollama on serverless GPU; `infra/dump_seed.sh` + `infra/entrypoint.sh` bootstrap Neon Postgres from the local DB on first boot; `docs/deployment.md` is the step-by-step; the frontend deploys to Cloudflare Pages with a single `VITE_API_BASE_URL` env var)*
+- **Post 11 — Skip the GPU: A Managed-API Deploy on Anthropic + Voyage** *(the alternative deploy path the Post 3 abstraction was designed for — `CHAT_PROVIDER=anthropic` + `EMBEDDING_PROVIDER=voyage` swap the AI layer off Modal with no code change; a dedicated `.env.production.anthropic.example`, a standalone `docs/deployment-anthropic.md`, and `docs/decisions/0005-managed-api-alternative.md` make it reproducible; the one real gotcha is re-indexing Chroma into Voyage's vector space before deploy)*
 
 ## Following along with the blog series
 
@@ -24,6 +25,7 @@ git checkout post-7   # state at the end of Post 7 — streaming chat + suggesti
 git checkout post-8   # state at the end of Post 8 — prompt hardening + markdown safety net
 git checkout post-9   # state at the end of Post 9 — world-graph overlay (skill + spoiler-filtered API + react-flow)
 git checkout post-10  # state at the end of Post 10 — cloud deploy (R2 + Fly + Modal + Neon + Pages)
+git checkout post-11  # state at the end of Post 11 — managed-API deploy path (Anthropic + Voyage, no GPU)
 ```
 
 Posts 1–4 describe building up to the Post 5 state; their snapshots are not tagged, so start from `post-5` (or a later tag) for a working checkpoint. `git checkout main` returns you to the latest. Feature branches named `feat/post-N-*` are scratch space while a post is being built.
@@ -34,7 +36,8 @@ Posts 1–4 describe building up to the Post 5 state; their snapshots are not ta
 .
 ├── docker-compose.yml          # Postgres + pgAdmin
 ├── .env.example                # copy to .env (dev)
-├── .env.production.example     # copy to .env.production (Post 10 — Fly secrets)
+├── .env.production.example     # copy to .env.production (Post 10 — Fly secrets, Modal path)
+├── .env.production.anthropic.example  # copy to .env.production (Post 11 — Anthropic + Voyage path)
 ├── Dockerfile                  # backend container for the Fly deploy (Post 10)
 ├── fly.toml                    # Fly app config (Post 10)
 ├── infra/                      # cloud-deploy scripts (Post 10)
@@ -386,6 +389,12 @@ fly secrets set …                                # push .env.production to Fly
 
 The architecture decisions are documented in
 [`docs/decisions/0004-cloud-deployment.md`](docs/decisions/0004-cloud-deployment.md).
+
+**Prefer to skip the GPU?** Post 11 documents a managed-API deploy path —
+chat on the Anthropic API, embeddings on Voyage AI, no Modal — that swaps the
+AI layer on two env vars with no code change. The standalone walkthrough is
+[`docs/deployment-anthropic.md`](docs/deployment-anthropic.md) (rationale:
+[`docs/decisions/0005-managed-api-alternative.md`](docs/decisions/0005-managed-api-alternative.md)).
 
 ## A few things this repo intentionally does *not* include
 

@@ -120,15 +120,21 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
 
     # Anthropic
+    # claude-haiku-4-5 is the cheapest current model and is plenty for grounded,
+    # retrieval-backed answers (it clears the bar Post 8 had to fight a 7B model
+    # for); step up to claude-sonnet-4-6 for more polish at ~10x the per-token
+    # cost. Chat is TEXT-ONLY here — the prompt carries retrieved descriptions,
+    # never an image — so AnthropicChatClient only ever emits text content blocks.
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-7"
+    anthropic_model: str = "claude-haiku-4-5"
 
     # Voyage AI (embeddings — Anthropic's recommended embeddings partner).
-    # Set together with embedding_provider="voyage". voyage-3-lite is the
-    # cheapest model and adequate for retrieval at portfolio scale;
-    # voyage-3 (1024-dim) is a step up if you want better quality.
+    # Set together with embedding_provider="voyage". voyage-4-lite is the
+    # cheapest current model (1024-dim default, ~$0.02/M tokens, 200M free
+    # tokens) and adequate for retrieval at portfolio scale; voyage-4 /
+    # voyage-4-large are quality step-ups at higher cost.
     voyage_api_key: str | None = None
-    voyage_model: str = "voyage-3-lite"
+    voyage_model: str = "voyage-4-lite"
 
     # === Backend ===
     backend_host: str = "0.0.0.0"

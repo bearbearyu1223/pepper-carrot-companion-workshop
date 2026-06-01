@@ -564,6 +564,13 @@ variants at runtime, so excluding `-original.jpg` shrinks the bucket
 
 ## Alternative: skip Modal entirely (Anthropic + Voyage AI)
 
+> **There is now a full standalone guide for this path:**
+> [`docs/deployment-anthropic.md`](deployment-anthropic.md), with its own env
+> template ([`.env.production.anthropic.example`](../.env.production.anthropic.example))
+> and ADR ([`0005-managed-api-alternative.md`](decisions/0005-managed-api-alternative.md)).
+> It's the topic of **Post 11**. The summary below is the three-delta version;
+> reach for the standalone guide if you want the step-by-step.
+
 The default flow puts qwen2.5:7b and bge-m3 on a Modal GPU because the
 series is *about* local-first self-hosted inference. If that constraint
 doesn't matter to you and you'd rather:
@@ -592,12 +599,16 @@ documented in §7 of Post 10.
    # In your local .env, switch the embedding provider:
    echo 'EMBEDDING_PROVIDER=voyage'  >> .env
    echo 'VOYAGE_API_KEY=pa-...'       >> .env
-   echo 'VOYAGE_MODEL=voyage-3-lite'  >> .env
+   echo 'VOYAGE_MODEL=voyage-4-lite'  >> .env
 
-   # Wipe the bge-m3 collections and re-ingest:
+   # Wipe the bge-m3 collections and re-ingest EVERY episode (page JSONs already
+   # on disk, so nothing is re-described — only embeddings + Chroma rebuild):
    rm -rf data/chroma
-   cd ingestion && uv run python ingest.py ep01-potion-of-flight  # repeat per episode
-   uv run python ingest_wiki.py
+   shopt -s nullglob
+   for dir in data/raw/ep*/; do
+     .claude/skills/ingest-from-images/scripts/reingest_with_json.sh "$(basename "$dir")"
+   done
+   cd ingestion && uv run python ingest_wiki.py
    ```
 
    Postgres + R2 stay put; only Chroma rebuilds.

@@ -174,7 +174,7 @@ class VoyageEmbeddingClient:
     local GPU to lean on for bge-m3.
 
     The wire format is a thin POST to /embeddings with `{"input": [...],
-    "model": "voyage-3-lite"}` and `Authorization: Bearer <key>`. Response
+    "model": "voyage-4-lite"}` and `Authorization: Bearer <key>`. Response
     shape is `{"data": [{"embedding": [...], "index": N}, ...]}` with the
     indices guaranteed to mirror the input order — we still re-sort by
     `index` defensively so a future API change can't silently scramble
