@@ -31,7 +31,12 @@ primary_region = 'iad'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  # Keep ONE machine always warm so the first request after idle (the picker's
+  # /api/episodes call) doesn't pay a wake-from-zero cold start. The second
+  # machine still auto-stops when idle and both scale up under load. Trade-off:
+  # ~$2-4/mo for the always-on 512 MB machine instead of $0 idle — the
+  # deliberate other side of the scale-to-zero choice. Set back to 0 for $0 idle.
+  min_machines_running = 1
 
   [http_service.concurrency]
     type = 'requests'
