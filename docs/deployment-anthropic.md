@@ -161,7 +161,26 @@ you must rebuild them.
 > from the model's general knowledge instead of the comic. Rebuild locally,
 > then deploy.
 
-Point your **local** `.env` at Voyage and rebuild:
+Point your **local** `.env` at Voyage and rebuild.
+
+> **⚠ Run this in a shell where you have NOT `source`d `.env.production`.**
+> The Step 1 smoke-test used `set -a && source .env.production && set +a`,
+> which *exports* `DATABASE_URL_OVERRIDE` (your Neon URL, with
+> `?sslmode=require`) into the shell. pydantic-settings reads OS environment
+> variables **in preference to** the `.env` file, so the re-index would point
+> at **Neon instead of your local Postgres** — and fail with `TypeError:
+> connect() got an unexpected keyword argument 'sslmode'`, because the
+> ingestion engine (unlike the backend's `db/session.py`) carries no asyncpg
+> SSL shim. That loud failure is actually protecting you: the re-index must
+> talk to your **local** Postgres so the seed you dump in Step 5 matches the
+> Voyage-built Chroma. Open a fresh terminal, or clear the leaked exports
+> first:
+>
+> ```bash
+> unset DATABASE_URL_OVERRIDE POSTGRES_RESTORE_URL
+> echo "${DATABASE_URL_OVERRIDE:-<unset — good>}"   # should print: <unset — good>
+> docker compose up -d                               # make sure local Postgres is running
+> ```
 
 ```bash
 # 1. Switch the local embedding provider. (Append to .env, or edit it.)
@@ -447,6 +466,7 @@ CORS row there applies unchanged. The rows below are specific to this path.
 | Chat 401 / `authentication_error` in `fly logs` | `ANTHROPIC_API_KEY` wrong or unset | `fly secrets set ANTHROPIC_API_KEY=sk-ant-…`. Confirm with the Step 1 curl. |
 | Chat 400 `credit balance is too low` | Anthropic account has $0 balance | Add credit under console.anthropic.com → Billing. |
 | Embeddings fail, `fly logs` shows a Voyage 401 | `VOYAGE_API_KEY` wrong or unset | `fly secrets set VOYAGE_API_KEY=pa-…`. Confirm with the Step 1 curl. |
+| `TypeError: connect() got an unexpected keyword argument 'sslmode'` during the **Step 2 re-index** | You `source`d `.env.production` in this shell, so `DATABASE_URL_OVERRIDE` (your Neon URL, with `?sslmode=require`) leaked into the environment and overrode your local `.env`. pydantic-settings prefers env vars over `.env`, so ingestion is trying to reach Neon — and its engine has no asyncpg SSL shim | `unset DATABASE_URL_OVERRIDE POSTGRES_RESTORE_URL` (or use a fresh terminal), confirm local Postgres is up (`docker compose up -d`), then re-run the re-index. It must target localhost, not Neon. |
 | Chat answers from general knowledge, `done` frame has **non-empty** `retrieved_doc_ids` | Deployed a `bge-m3`-built Chroma against a Voyage runtime — query vector and stored vectors are in different spaces, so ranking is meaningless. (Both are 1024-dim, so it won't *look* wrong.) | Redo Step 2 (`rm -rf data/chroma`, re-ingest with `EMBEDDING_PROVIDER=voyage`), pass the Step 2 functional check, then `fly deploy`. |
 | Chat answers from general knowledge, `done` frame has **empty** `retrieved_doc_ids` | Baked Chroma is empty — Step 2 wiped it but the re-ingest didn't run, or `fly deploy` baked before the rebuild | Confirm local counts > 0 (the Step 2 sanity snippet), then re-bake with `fly deploy`. |
 | `fly logs` shows `Unknown embedding_provider` or `Unknown chat_provider` | `fly.toml` `[env]` still says `ollama`, and no secret overrides it | Edit `fly.toml` per Step 6a (or `fly secrets set CHAT_PROVIDER=anthropic EMBEDDING_PROVIDER=voyage`). |
