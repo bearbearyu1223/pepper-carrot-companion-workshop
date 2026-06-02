@@ -178,8 +178,9 @@ rm -rf data/chroma
 #    data/raw/<slug> — so `basename` of each dir IS the slug it wants. The
 #    page-description JSONs already exist on disk from your first ingest, so
 #    nothing is re-described; only the embeddings (and Chroma) rebuild.
-shopt -s nullglob                       # an empty glob expands to nothing, not a literal
-for dir in data/raw/ep*/; do
+#    `find` (not a shell glob) keeps this identical in bash and zsh — zsh errors
+#    on an unmatched `ep*/` glob and lacks bash's `shopt -s nullglob`.
+find data/raw -maxdepth 1 -type d -name 'ep*' | sort | while read -r dir; do
   slug=$(basename "$dir")
   echo "── re-indexing $slug ──"
   .claude/skills/ingest-from-images/scripts/reingest_with_json.sh "$slug"

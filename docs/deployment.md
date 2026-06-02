@@ -604,8 +604,7 @@ documented in §7 of Post 10.
    # Wipe the bge-m3 collections and re-ingest EVERY episode (page JSONs already
    # on disk, so nothing is re-described — only embeddings + Chroma rebuild):
    rm -rf data/chroma
-   shopt -s nullglob
-   for dir in data/raw/ep*/; do
+   find data/raw -maxdepth 1 -type d -name 'ep*' | sort | while read -r dir; do
      .claude/skills/ingest-from-images/scripts/reingest_with_json.sh "$(basename "$dir")"
    done
    cd ingestion && uv run python ingest_wiki.py
