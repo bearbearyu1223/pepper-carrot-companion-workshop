@@ -265,6 +265,9 @@ export function ChatPanel({
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Ask about this page…"
           disabled={streaming}
+          // Mirror the server's _MAX_MESSAGE_CHARS guard so the UI can't submit
+          // an over-long question (the server still enforces it; this is UX).
+          maxLength={2000}
           aria-label="Ask a question about the current page"
         />
         <div className="chat-actions">

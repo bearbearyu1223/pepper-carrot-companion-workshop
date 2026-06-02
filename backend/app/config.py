@@ -142,6 +142,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
+    # Per-client (per-IP) cap on the cost-bearing chat endpoint
+    # (POST /api/sessions/{id}/messages), as requests per 60 seconds. Each chat
+    # request makes two paid model calls, so this is the app-level guard against
+    # scripted abuse of the public demo — the provider spend cap is the real
+    # ceiling; this throttles the volume that reaches it. Set to 0 to disable
+    # (e.g. local dev). Tunable per environment without a code change.
+    chat_rate_limit_per_minute: int = 20
+
     @field_validator("chroma_persist_dir", "local_image_dir", mode="after")
     @classmethod
     def _anchor_to_project_root(cls, v: Path) -> Path:

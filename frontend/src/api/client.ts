@@ -97,6 +97,22 @@ export async function* streamMessage(
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    // Surface server-side rejections (429 rate limit, 422 over-long message,
+    // 503 chat-unavailable) as a friendly error instead of parsing the JSON
+    // error body as SSE and hanging silently.
+    let message = `Request failed (${res.status}).`;
+    if (res.status === 429) {
+      const retry = res.headers.get('Retry-After');
+      message = retry
+        ? `You're sending messages too quickly — try again in ${retry}s.`
+        : "You're sending messages too quickly — please slow down.";
+    } else if (res.status === 422) {
+      message = 'That message is too long — please shorten it and try again.';
+    }
+    yield { type: 'error', code: `http_${res.status}`, message };
+    return;
+  }
   if (!res.body) {
     yield { type: 'error', code: 'no_body', message: 'No response body' };
     return;

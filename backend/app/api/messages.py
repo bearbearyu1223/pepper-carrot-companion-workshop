@@ -22,10 +22,12 @@ from collections.abc import AsyncIterator
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.ratelimit import SlidingWindowRateLimiter, client_ip
+from app.config import get_settings
 from app.db.session import get_session
 from app.orchestration.chat import ChatOrchestrator, SessionNotFoundError
 from app.retrieval.service import Mode
@@ -34,10 +36,32 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Upper bound on a single question. A real question is a sentence or two; this
+# is generous for legit use and caps the input-token cost a single abusive
+# request can run up (the model's context is otherwise the only ceiling).
+# Pydantic rejects anything longer with a 422 before the model is ever called.
+_MAX_MESSAGE_CHARS = 2000
+
+# One limiter instance, shared across requests, sized from settings at startup.
+_chat_limiter = SlidingWindowRateLimiter(
+    max_requests=get_settings().chat_rate_limit_per_minute,
+    window_seconds=60.0,
+)
+
+
+async def rate_limit_chat(request: Request) -> None:
+    """Per-IP throttle on the cost-bearing chat endpoint.
+
+    Raises HTTP 429 (with ``Retry-After``) past the configured budget. A no-op
+    when ``chat_rate_limit_per_minute`` is 0. Tests can disable it per-app via
+    ``app.dependency_overrides[rate_limit_chat] = lambda: None``.
+    """
+    _chat_limiter.check(client_ip(request))
+
 
 class SendMessageBody(BaseModel):
     mode: Mode
-    message: str
+    message: str = Field(min_length=1, max_length=_MAX_MESSAGE_CHARS)
     # Whether a two-page spread is on screen (wide viewport). The client knows
     # its own viewport; the server uses this to describe both visible pages.
     # It does NOT move the spoiler boundary — that stays at the session's
@@ -64,7 +88,7 @@ def get_chat_orchestrator(request: Request) -> ChatOrchestrator:
     return cast(ChatOrchestrator, orchestrator)
 
 
-@router.post("/{session_id}/messages")
+@router.post("/{session_id}/messages", dependencies=[Depends(rate_limit_chat)])
 async def send_message(
     session_id: uuid.UUID,
     body: SendMessageBody,
