@@ -2,7 +2,7 @@
 
 This document orients Claude Code (and human contributors) to the **workshop starter** for the Pepper & Carrot Reading Companion. **Read this first** before making changes.
 
-> **About the scope.** This repository contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 11** (managed-API deploy) of the blog series — the full series, end to end, from a fresh laptop to a public URL on Cloudflare Pages + Fly + Modal + R2 + Neon. The deploy infrastructure (`Dockerfile`, `fly.toml`, `infra/`, `.env.production.example`, `docs/deployment.md`, the boto3-backed `R2Storage` implementation) lands in this repo at the `post-10` tag; **Post 11** adds the no-GPU alternative deploy path (`.env.production.anthropic.example`, `docs/deployment-anthropic.md`, `docs/decisions/0005-managed-api-alternative.md`) at the `post-11` tag — config-only, no runtime code change, since `AnthropicChatClient` + `VoyageEmbeddingClient` already shipped at post-10.
+> **About the scope.** This repository contains everything needed to reproduce [Post 2](https://bearbearyu1223.github.io/posts/pepper-carrot-companion-workshop/) (workshop setup) through **Post 16** (managed-API deploy) of the blog series — the full series, end to end, from a fresh laptop to a public URL on Cloudflare Pages + Fly + Modal + R2 + Neon. The deploy infrastructure (`Dockerfile`, `fly.toml`, `infra/`, `.env.production.example`, `docs/deployment.md`, the boto3-backed `R2Storage` implementation) lands in this repo at the `post-14-15-deploy` tag; **Post 16** adds the no-GPU alternative deploy path (`.env.production.anthropic.example`, `docs/deployment-anthropic.md`, `docs/decisions/0005-managed-api-alternative.md`) at the `post-16-managed` tag — config-only, no runtime code change, since `AnthropicChatClient` + `VoyageEmbeddingClient` already shipped at post-14-15-deploy.
 
 ---
 
@@ -15,7 +15,7 @@ This is a **portfolio / demo project**. Optimize for clarity, quality, and a cle
 ## What this project is NOT
 
 - Not a SaaS. No multi-tenancy, no billing, no admin panel.
-- Not optimized for scale. Single VM is the target; ChromaDB embedded in-process is fine (in Post 6).
+- Not optimized for scale. Single VM is the target; ChromaDB embedded in-process is fine (in Post 9).
 - Not a generic comic platform. The data model and prompts are tuned for Pepper & Carrot specifically.
 - Not for content the project does not have rights to.
 
@@ -23,7 +23,7 @@ This is a **portfolio / demo project**. Optimize for clarity, quality, and a cle
 
 ## Architecture (one paragraph)
 
-A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, retrieves vector chunks from ChromaDB (Post 6), fetches images from local storage (cloud later), and calls model providers (local Ollama by default for chat + embeddings; Anthropic API as a swap-in). A React + StPageFlip frontend (Post 5) renders the flipbook, with a streaming chat panel beside it (Post 7); the world-graph overlay is added in Post 9 in the full project. An offline ingestion script (Post 4) populates Postgres + Chroma + the image store from raw episode assets. Page descriptions are produced by the `ingest-from-images` Claude Code skill (Post 4). Three things are abstracted behind interfaces because they change between local and cloud: chat provider, embedding provider, and image storage. **The workshop starter implements those three interfaces, the data model and Alembic migrations, the offline ingestion pipeline, and a typed REST surface plus a flipbook reader UI.**
+A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, retrieves vector chunks from ChromaDB (Post 9), fetches images from local storage (cloud later), and calls model providers (local Ollama by default for chat + embeddings; Anthropic API as a swap-in). A React + StPageFlip frontend (Post 8) renders the flipbook, with a streaming chat panel beside it (Post 10); the world-graph overlay is added in Posts 12–13 in the full project. An offline ingestion script (Post 6) populates Postgres + Chroma + the image store from raw episode assets. Page descriptions are produced by the `ingest-from-images` Claude Code skill (Post 5). Three things are abstracted behind interfaces because they change between local and cloud: chat provider, embedding provider, and image storage. **The workshop starter implements those three interfaces, the data model and Alembic migrations, the offline ingestion pipeline, and a typed REST surface plus a flipbook reader UI.**
 
 ---
 
@@ -32,7 +32,7 @@ A FastAPI backend orchestrates everything. It reads metadata from PostgreSQL, re
 ```
 pepper-carrot-companion-workshop/
 ├── CLAUDE.md                ← you are here
-├── README.md                ← human-facing setup guide, mapped to Posts 2–7
+├── README.md                ← human-facing setup guide, mapped to Posts 2–16
 ├── docker-compose.yml       ← postgres + pgadmin
 ├── .env.example             ← copy to .env and fill in
 ├── docs/
@@ -45,27 +45,27 @@ pepper-carrot-companion-workshop/
 │   │   ├── main.py          ← FastAPI app: lifespan, CORS, /api/episodes, /images mount, /health
 │   │   ├── config.py        ← typed Settings (pydantic-settings)
 │   │   ├── api/             ← HTTP API surface
-│   │   │   ├── episodes.py  ←   GET /api/episodes + /api/episodes/{slug} (Post 5)
-│   │   │   ├── sessions.py  ←   POST /api/sessions + PATCH /api/sessions/{id} (Post 6)
-│   │   │   └── messages.py  ←   POST /api/sessions/{id}/messages — SSE chat stream (Posts 6–7)
+│   │   │   ├── episodes.py  ←   GET /api/episodes + /api/episodes/{slug} (Post 7)
+│   │   │   ├── sessions.py  ←   POST /api/sessions + PATCH /api/sessions/{id} (Post 9)
+│   │   │   └── messages.py  ←   POST /api/sessions/{id}/messages — SSE chat stream (Posts 9–10)
 │   │   ├── clients/         ← provider abstractions ★
 │   │   │   ├── storage.py   ←   Storage + LocalStorage (+ R2Storage stub)
 │   │   │   ├── embedding.py ←   EmbeddingClient + Ollama + sentence-transformers
 │   │   │   ├── chat.py      ←   ChatClient + Ollama + Anthropic (stream + complete)
-│   │   │   ├── vision.py    ←   VisionClient + JsonFileVisionClient (used in Post 4)
+│   │   │   ├── vision.py    ←   VisionClient + JsonFileVisionClient (used in Post 6)
 │   │   │   └── __init__.py  ←   the factory
 │   │   ├── core/
-│   │   │   └── prompts.py   ← PAGE / WIKI / SUGGESTIONS prompts (Posts 6–7) ★
+│   │   │   └── prompts.py   ← PAGE / WIKI / SUGGESTIONS prompts (Posts 9–10) ★
 │   │   ├── retrieval/
-│   │   │   └── service.py   ← RetrievalService + the spoiler filter (Posts 6–7) ★
+│   │   │   └── service.py   ← RetrievalService + the spoiler filter (Posts 9–10) ★
 │   │   ├── orchestration/
-│   │   │   └── chat.py      ← ChatOrchestrator.stream_response — retrieve→prompt→stream+chips (Posts 6–7) ★
+│   │   │   └── chat.py      ← ChatOrchestrator.stream_response — retrieve→prompt→stream+chips (Posts 9–10) ★
 │   │   └── db/
 │   │       ├── models.py    ← 10 SQLAlchemy 2.0 typed models
 │   │       ├── session.py   ← async engine + session factory
 │   │       └── seed.py      ← 31-character canonical roster
 │   └── tests/               ← storage, embedding, episodes-api, retrieval, chat (parser + SSE)
-├── frontend/                ← React + Vite + TS flipbook UI + chat panel (Posts 5, 7)
+├── frontend/                ← React + Vite + TS flipbook UI + chat panel (Posts 8, 10)
 │   ├── package.json
 │   ├── vite.config.ts       ← dev proxy for /api and /images
 │   ├── tsconfig.json
@@ -79,13 +79,13 @@ pepper-carrot-companion-workshop/
 │       ├── components/
 │       │   ├── EpisodePicker.tsx
 │       │   ├── Flipbook.tsx ← StPageFlip wrapped in React via a ref
-│       │   └── ChatPanel.tsx ← streaming chat + suggestion chips (Post 7)
+│       │   └── ChatPanel.tsx ← streaming chat + suggestion chips (Post 10)
 │       └── styles/global.css
 ├── ingestion/
 │   ├── acquire.py           ← peppercarrot.com episode downloader (Post 2 step)
-│   ├── ingest.py            ← Post 4 Stage 2 orchestrator (episodes)
-│   ├── ingest_wiki.py       ← wiki seed → wiki_articles + wiki_v1 (Post 7)
-│   ├── wiki_seed.yaml       ← hand-written seed wiki articles (Post 7)
+│   ├── ingest.py            ← Post 6 Stage 2 orchestrator (episodes)
+│   ├── ingest_wiki.py       ← wiki seed → wiki_articles + wiki_v1 (Post 10)
+│   ├── wiki_seed.yaml       ← hand-written seed wiki articles (Post 10)
 │   ├── images.py            ← Pillow image variants + blurhash + dominant color
 │   ├── episode_loader.py    ← validates metadata.yaml + lists page files
 │   ├── repository.py        ← async DB upsert helpers (pages + wiki)
@@ -93,9 +93,9 @@ pepper-carrot-companion-workshop/
 └── data/                    ← gitignored — Postgres bind mount + downloaded episodes
 ```
 
-★ = the most architecturally important code. Read these first when changing model behavior. The `clients/` provider abstractions are the topic of Post 3; the `retrieval/` + `orchestration/` + `core/prompts.py` chat layer is the topic of Post 6 (retrieval + the spoiler boundary) and Post 7 (streaming + chips).
+★ = the most architecturally important code. Read these first when changing model behavior. The `clients/` provider abstractions are the topic of Post 4; the `retrieval/` + `orchestration/` + `core/prompts.py` chat layer is the topic of Post 9 (retrieval + the spoiler boundary) and Post 10 (streaming + chips).
 
-**Cloud-deploy artifacts added at the `post-10` tag** (in addition to everything Posts 2–9 left here): `Dockerfile`, `fly.toml`, `.env.production.example`, `infra/modal_ollama.py`, `infra/entrypoint.sh`, `infra/dump_seed.sh`, the boto3-backed `R2Storage` implementation in `backend/app/clients/storage.py`, `docs/deployment.md`, and `docs/decisions/0004-cloud-deployment.md`.
+**Cloud-deploy artifacts added at the `post-14-15-deploy` tag** (in addition to everything Posts 2–13 left here): `Dockerfile`, `fly.toml`, `.env.production.example`, `infra/modal_ollama.py`, `infra/entrypoint.sh`, `infra/dump_seed.sh`, the boto3-backed `R2Storage` implementation in `backend/app/clients/storage.py`, `docs/deployment.md`, and `docs/decisions/0004-cloud-deployment.md`.
 
 ---
 
@@ -119,9 +119,9 @@ import httpx
 httpx.post("http://localhost:11434/api/embed", ...)  # ← never in routes, services, or ingestion
 ```
 
-When asked to add a new provider, the change is: add a new implementation class in `clients/`, register it in the factory in `backend/app/clients/__init__.py`, add a config option. No caller code changes. This is the topic of Post 3.
+When asked to add a new provider, the change is: add a new implementation class in `clients/`, register it in the factory in `backend/app/clients/__init__.py`, add a config option. No caller code changes. This is the topic of Post 4.
 
-### 2. Spoiler safety is enforced at the data layer *(active from Post 6)*
+### 2. Spoiler safety is enforced at the data layer *(active from Post 9)*
 
 Retrieval queries **always** filter by the reader's position before ranking. The boundary is *lexicographic* on `(episode, page)` — an earlier episode (any page), OR the current episode up to an earlier page — **not** the flat `episode_number <= E AND page_number <= P`. The flat form is a real bug: it would drop page 20 of episode 1 while the reader is on page 3 of episode 2, even though episode 1 is fully behind them. The Chroma `where` clause:
 
@@ -137,11 +137,11 @@ Retrieval queries **always** filter by the reader's position before ranking. The
 
 This is non-negotiable, and it does not rely on prompt instructions. The boundary integers come from the `chat_sessions` row (server-side reading progress), never from the user's message — so a jailbreak prompt has nothing to widen. The enforcing code is `RetrievalService._spoiler_filter` in `backend/app/retrieval/service.py`; the proof is `backend/tests/test_retrieval.py`.
 
-### 3. All system prompts live in `core/prompts.py` *(active from Post 6)*
+### 3. All system prompts live in `core/prompts.py` *(active from Post 9)*
 
 Per-mode prompts compose shared blocks for voice, spoiler discipline, grounding contract, anti-recitation, and a strict response-format block. `PAGE_MODE_SYSTEM` and `WIKI_MODE_SYSTEM` share `_SHARED_VOICE`, `_SPOILER_DISCIPLINE`, `_GROUNDING_CONTRACT`, and `_RESPONSE_FORMAT`; `PAGE_MODE_SYSTEM` adds `_PAGE_ANTI_RECITATION`; `WIKI_MODE_SYSTEM` adds `_WIKI_OUTPUT_DISCIPLINE`. `SUGGESTIONS_SYSTEM` drives the follow-up-chip generation, with the chip *shape* enforced by `_SUGGESTIONS_SCHEMA` in `orchestration/chat.py`. Keep them as module-level constants. Never inline a prompt in a route or service.
 
-### 4. Database is the source of truth, Chroma stores embeddings + IDs *(active from Post 6)*
+### 4. Database is the source of truth, Chroma stores embeddings + IDs *(active from Post 9)*
 
 ChromaDB stores `(embedding, metadata, document_id)` tuples. The actual text content lives in Postgres. This means: when retrieving, query Chroma for IDs, then fetch full content from Postgres. Do not duplicate text across stores. The schema in this starter already reflects this convention — `pages.visual_description` and `wiki_articles.content` are the canonical text columns.
 
@@ -157,9 +157,9 @@ FastAPI is async. SQLAlchemy uses the async session. Model client calls are asyn
 
 Pydantic models for API I/O. SQLAlchemy 2.0 typed declarative models for DB (`Mapped[X]` annotations on every column). `Protocol` types for client interfaces. The codebase passes `mypy --strict`. If you add types that break it, fix the breakage.
 
-### 8. Tests for retrieval logic and prompt assembly *(active from Post 6)*
+### 8. Tests for retrieval logic and prompt assembly *(active from Post 9)*
 
-These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the storage layer), both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in), the episodes API (because the relative-key → absolute-URL resolution at response time is the part the rest of the stack depends on), and the spoiler boundary in `test_retrieval.py` (the security-critical part of Post 6 — the tests prove the filter holds even against a jailbreak query that explicitly asks for future content), and the chat seams in `test_chat.py` (the suggestion-chip parser and the SSE event framing — the two places the streaming layer hides bugs).
+These are the two places bugs hide. Other things can be tested by hand for the demo. Don't write exhaustive unit tests for plumbing. The current `tests/` cover `LocalStorage` (the only non-trivial behavior in the storage layer), both embedding clients (because the wire-format diff between Ollama and sentence-transformers is exactly the seam that a bug would hide in), the episodes API (because the relative-key → absolute-URL resolution at response time is the part the rest of the stack depends on), and the spoiler boundary in `test_retrieval.py` (the security-critical part of Post 9 — the tests prove the filter holds even against a jailbreak query that explicitly asks for future content), and the chat seams in `test_chat.py` (the suggestion-chip parser and the SSE event framing — the two places the streaming layer hides bugs).
 
 ### 9. Frontend: hand-rolled types, plain fetch, view-state by `useState`
 
@@ -190,17 +190,17 @@ cd backend && uv run ruff check app/  # All checks passed!
 cd backend && uv run pytest -v   # 30 tests: storage + embeddings + episodes API + retrieval + chat
 cd frontend && npm run type-check && npm run build    # tsc -b clean + Vite build
 
-# Acquire one episode (used in Post 4 ingestion)
+# Acquire one episode (used in Posts 5–6 ingestion)
 cd ingestion && uv run python acquire.py episode \
   --slug ep01_Potion-of-Flight --lang en --out ../data/raw
 
 # Seed the canonical character roster
 cd backend && uv run python -m app.db.seed    # 31 characters upserted
 
-# Ingest the wiki seed (Post 7 — enables wiki mode + the wiki chip)
+# Ingest the wiki seed (Post 10 — enables wiki mode + the wiki chip)
 cd ingestion && uv run python ingest_wiki.py    # 5 articles → wiki_articles + wiki_v1
 
-# Stream a chat answer over SSE (Post 7 — needs one ingested episode + backend running)
+# Stream a chat answer over SSE (Post 10 — needs one ingested episode + backend running)
 SID=$(curl -s -X POST localhost:8000/api/sessions -H 'content-type: application/json' \
   -d '{"episode_slug":"ep01-potion-of-flight"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
@@ -209,7 +209,7 @@ curl -s -X PATCH localhost:8000/api/sessions/$SID -H 'content-type: application/
 curl -N -X POST localhost:8000/api/sessions/$SID/messages -H 'content-type: application/json' \
   -d '{"mode":"page","message":"who is on this page?"}'   # -N: unbuffered; watch token/done SSE frames
 
-# Cloud deploy (Post 10 — see docs/deployment.md for the full guide)
+# Cloud deploy (Posts 14–15 — see docs/deployment.md for the full guide)
 cp .env.production.example .env.production    # fill in 11 values
 modal deploy infra/modal_ollama.py            # GPU-served Ollama on Modal
 ./infra/dump_seed.sh                          # local Postgres → data/seed.sql
@@ -272,6 +272,6 @@ The code in this repository is MIT-licensed — see [`LICENSE`](LICENSE).
 
 ---
 
-## Style notes for chat / prose *(active from Post 7)*
+## Style notes for chat / prose *(active from Post 10)*
 
 When the application generates user-facing text (chat responses, UI copy), prefer warm, conversational tone — Pepper & Carrot itself is warm and playful, and the companion should match. Avoid corporate AI-speak ("I'd be happy to help!"). The reader is exploring a witch's world; the companion can lean a little whimsical.
