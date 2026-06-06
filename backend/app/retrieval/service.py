@@ -129,6 +129,7 @@ class RetrievalService:
         *,
         current_episode_number: int,
         current_page_number: int,
+        k: int | None = None,
     ) -> list[RetrievedChunk]:
         """Return chunks relevant to `query` for the given mode.
 
@@ -139,15 +140,24 @@ class RetrievalService:
           the `chat_sessions` row, never from `query`.
         - **wiki**: `wiki_v1`, no filter. Universe facts aren't plot spoilers,
           and the user picked this mode on purpose.
+
+        `k` overrides how many chunks to return. The chat orchestrator leaves it
+        `None` so production keeps the tuned `_PAGE_K`/`_WIKI_K` (3); the
+        `/api/retrieve` inspection route passes it through so an evaluator can
+        sweep `k` for recall@k curves. It does not affect the spoiler filter.
         """
         embeddings = await self._embedding_client.embed_batch([query])
         query_embedding = embeddings[0]
 
         if mode == "page":
             where = self._spoiler_filter(current_episode_number, current_page_number)
-            return await self._query(self._pages, query_embedding, where=where, k=_PAGE_K)
+            return await self._query(
+                self._pages, query_embedding, where=where, k=k or _PAGE_K
+            )
         if mode == "wiki":
-            return await self._query(self._wiki, query_embedding, where=None, k=_WIKI_K)
+            return await self._query(
+                self._wiki, query_embedding, where=None, k=k or _WIKI_K
+            )
         raise ValueError(f"Unknown retrieval mode: {mode}")
 
     @staticmethod

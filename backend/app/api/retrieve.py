@@ -132,6 +132,7 @@ async def retrieve(
         # Ignored by wiki mode; for page mode the handler guaranteed both above.
         current_episode_number=body.current_episode or 0,
         current_page_number=body.current_page or 0,
+        k=body.k,
     )
     texts = await fetch_chunk_text(db, chunks)
 

@@ -257,6 +257,27 @@ async def test_scores_and_rank_passthrough(tmp_path: Path) -> None:
         app.dependency_overrides.clear()
 
 
+async def test_k_limits_the_number_of_chunks(tmp_path: Path) -> None:
+    # Five eligible pages; k=2 must return exactly two (the route threads k into
+    # RetrievalService.retrieve, overriding the production _PAGE_K of 3).
+    service, _ = _seed_service(tmp_path, [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5)])
+    try:
+        async with _make_client(service) as c:
+            r = await c.post(
+                "/api/retrieve",
+                json={
+                    "mode": "page",
+                    "query": "anything",
+                    "current_episode": 2,
+                    "current_page": 1,
+                    "k": 2,
+                },
+            )
+        assert len(r.json()["chunks"]) == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
 async def test_text_passthrough_prefixes_characters_and_strips_markdown(
     tmp_path: Path,
 ) -> None:
