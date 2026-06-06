@@ -150,6 +150,13 @@ class Settings(BaseSettings):
     # (e.g. local dev). Tunable per environment without a code change.
     chat_rate_limit_per_minute: int = 20
 
+    # Per-client (per-IP) cap on the retrieval-inspection endpoint
+    # (POST /api/retrieve), as requests per 60 seconds. Cheaper than chat — one
+    # embedding per call, no generation — so the default is more generous. This
+    # is the eval/MCP surface (see docs/decisions/0006-retrieval-endpoint.md);
+    # set to 0 to disable. Tunable per environment without a code change.
+    retrieve_rate_limit_per_minute: int = 60
+
     @field_validator("chroma_persist_dir", "local_image_dir", mode="after")
     @classmethod
     def _anchor_to_project_root(cls, v: Path) -> Path:

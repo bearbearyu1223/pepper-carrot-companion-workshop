@@ -19,7 +19,9 @@ that into the token stream above and adds the chips. Post 8 adds the
 `_strip_markdown` helper that scrubs `**bold**`, `### headers`, `- bullets`
 and friends out of every piece of text on its way into the prompt — small
 chat models mirror whatever formatting they see in context, so removing the
-markers at the source is what keeps replies as plain conversational prose.
+markers at the source is what keeps replies as plain conversational prose
+(`strip_markdown` now lives in `core/text.py`, shared with the retrieval
+text-fetch).
 """
 
 from __future__ import annotations
@@ -38,8 +40,14 @@ from sqlalchemy.orm import selectinload
 
 from app.clients.chat import ChatClient, ContentBlockText, Message
 from app.core.prompts import SUGGESTIONS_SYSTEM, render_system_prompt
+from app.core.text import strip_markdown
 from app.db import models
-from app.retrieval.service import Mode, RetrievalService, RetrievedChunk
+from app.retrieval.service import (
+    Mode,
+    RetrievalService,
+    RetrievedChunk,
+    fetch_chunk_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,41 +85,6 @@ _SUGGESTIONS_SCHEMA: dict[str, Any] = {
     "required": ["page_chip", "wiki_chip"],
     "additionalProperties": False,
 }
-
-
-# Markdown-stripping. The page descriptions written by the `ingest-from-images`
-# skill and the wiki seed articles are both markdown-heavy at the source — they
-# carry `**bold**` for proper nouns, `### headers`, `- bullets`, and so on.
-# Small chat models mirror whatever formatting they see in context, so an essay
-# question reliably comes back as a four-section essay. We strip the formatting
-# characters before the model sees them; the text content survives, only the
-# markers disappear. The frontend separately renders any markdown the model
-# *does* emit as a safety net (Post 8), so the discipline is in both places.
-_MARKDOWN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\*\*([^*\n]+?)\*\*"), r"\1"),                # **bold**
-    (re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)"), r"\1"),       # *italic*
-    (re.compile(r"__([^_\n]+?)__"), r"\1"),                    # __bold__
-    (re.compile(r"(?<!_)_([^_\n]+?)_(?!_)"), r"\1"),           # _italic_
-    (re.compile(r"`([^`\n]+?)`"), r"\1"),                      # `code`
-    (re.compile(r"^#{1,6}\s+", re.MULTILINE), ""),             # # headers
-    (re.compile(r"^\s*[-*•]\s+", re.MULTILINE), ""),           # - bullets
-    (re.compile(r"^\s*\d+\.\s+", re.MULTILINE), ""),           # 1. numbered
-    (re.compile(r"^\s*>\s?", re.MULTILINE), ""),               # > blockquotes
-    (re.compile(r"^\s*-{3,}\s*$", re.MULTILINE), ""),          # --- rules
-    (re.compile(r"\n{3,}"), "\n\n"),                           # collapse blank runs
-)
-
-
-def _strip_markdown(text: str) -> str:
-    """Remove markdown formatting so the chat model sees plain prose.
-
-    Applied to every piece of text that ends up in the user-turn prompt:
-    `episode.plot_summary`, `page.visual_description`, `page.ocr_text`, each
-    retrieved page's description, and each retrieved wiki article's content.
-    """
-    for pattern, replacement in _MARKDOWN_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text.strip()
 
 
 class SessionNotFoundError(RuntimeError):
@@ -171,7 +144,7 @@ class ChatOrchestrator:
         )
 
         # 4. Fetch the chunks' full text from Postgres (the source of truth).
-        retrieved_text = await self._fetch_chunk_text(db, chunks)
+        retrieved_text = await fetch_chunk_text(db, chunks)
 
         # 5. Build the prompt (system + history + the labeled user turn).
         system_prompt = render_system_prompt(
@@ -281,60 +254,6 @@ class ChatOrchestrator:
 
         return session, episode, pages
 
-    async def _fetch_chunk_text(
-        self,
-        db: AsyncSession,
-        chunks: list[RetrievedChunk],
-    ) -> list[tuple[RetrievedChunk, str]]:
-        """Look up each chunk's canonical text from Postgres by source table + id.
-
-        One `IN` query per source table. Order is preserved by re-indexing
-        through the original `chunks` list.
-        """
-        if not chunks:
-            return []
-
-        ids_by_table: dict[str, list[uuid.UUID]] = {}
-        for chunk in chunks:
-            try:
-                ids_by_table.setdefault(chunk.source_table, []).append(
-                    uuid.UUID(chunk.source_id)
-                )
-            except ValueError:
-                continue
-
-        text_lookup: dict[tuple[str, str], str] = {}
-
-        if "pages" in ids_by_table:
-            page_stmt = (
-                select(models.Page)
-                .where(models.Page.id.in_(ids_by_table["pages"]))
-                .options(selectinload(models.Page.characters))
-            )
-            for page in (await db.execute(page_stmt)).scalars():
-                description = _strip_markdown(page.visual_description or "")
-                if page.characters:
-                    names = ", ".join(sorted(c.name for c in page.characters))
-                    description = f"Featuring {names}. {description}"
-                text_lookup[("pages", str(page.id))] = description
-
-        if "wiki" in ids_by_table:
-            wiki_stmt = select(models.WikiArticle).where(
-                models.WikiArticle.id.in_(ids_by_table["wiki"])
-            )
-            for article in (await db.execute(wiki_stmt)).scalars():
-                # title + body, so attribution and content are both available.
-                # Wiki seed articles are markdown-heavy at source — strip the
-                # formatting so the model doesn't mirror it in the answer.
-                text_lookup[("wiki", str(article.id))] = (
-                    f"{article.title}\n\n{_strip_markdown(article.content)}"
-                )
-
-        return [
-            (chunk, text_lookup.get((chunk.source_table, chunk.source_id), ""))
-            for chunk in chunks
-        ]
-
     # ─── prompt assembly ─────────────────────────────────────────────────────────
 
     async def _assemble_messages(
@@ -386,7 +305,7 @@ class ChatOrchestrator:
         model can attribute facts to the right page."""
         if episode.plot_summary:
             parts.append("=== About this episode ===")
-            parts.append(_strip_markdown(episode.plot_summary))
+            parts.append(strip_markdown(episode.plot_summary))
             parts.append("")
 
         if len(pages) == 2:
@@ -405,14 +324,14 @@ class ChatOrchestrator:
                 names = ", ".join(sorted(c.name for c in page.characters))
                 parts.append(f"Characters on this page: {names}")
             parts.append(
-                _strip_markdown(page.visual_description)
+                strip_markdown(page.visual_description)
                 if page.visual_description
                 else "(no description available for this page)"
             )
             if page.ocr_text:
                 parts.append("")
                 parts.append("Dialogue on this page:")
-                parts.append(_strip_markdown(page.ocr_text))
+                parts.append(strip_markdown(page.ocr_text))
             if page.mood_tags:
                 parts.append(f"Mood: {', '.join(page.mood_tags)}")
 

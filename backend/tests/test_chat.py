@@ -1,7 +1,7 @@
 """Tests for the chat layer's three bug-prone seams.
 
 `_parse_suggestions` turns the model's named-slot JSON into the SSE chip
-array and drops anything that isn't a complete question. `_strip_markdown`
+array and drops anything that isn't a complete question. `strip_markdown`
 scrubs source markdown out of the text on its way into the prompt — Post 8's
 discipline that keeps small models from mirroring `**bold**` and `### headers`
 into their replies. The message endpoint frames the orchestrator's events as
@@ -19,9 +19,10 @@ from typing import Any
 from httpx import ASGITransport, AsyncClient
 
 from app.api.messages import get_chat_orchestrator
+from app.core.text import strip_markdown
 from app.db.session import get_session
 from app.main import app
-from app.orchestration.chat import _parse_suggestions, _strip_markdown
+from app.orchestration.chat import _parse_suggestions
 
 # ─── _parse_suggestions ───────────────────────────────────────────────────────
 
@@ -65,9 +66,9 @@ def test_parse_invalid_or_empty_returns_no_chips() -> None:
 
 
 def test_strip_markdown_removes_inline_markers() -> None:
-    assert _strip_markdown("**Pepper** and *Carrot*") == "Pepper and Carrot"
-    assert _strip_markdown("__bold__ and _italic_") == "bold and italic"
-    assert _strip_markdown("call `embed_batch()` first") == "call embed_batch() first"
+    assert strip_markdown("**Pepper** and *Carrot*") == "Pepper and Carrot"
+    assert strip_markdown("__bold__ and _italic_") == "bold and italic"
+    assert strip_markdown("call `embed_batch()` first") == "call embed_batch() first"
 
 
 def test_strip_markdown_removes_block_markers() -> None:
@@ -84,7 +85,7 @@ def test_strip_markdown_removes_block_markers() -> None:
         "> a quiet pop\n"
         "---\n"
     )
-    out = _strip_markdown(src)
+    out = strip_markdown(src)
     assert "##" not in out
     assert "- " not in out
     assert "1. " not in out
@@ -99,7 +100,7 @@ def test_strip_markdown_removes_block_markers() -> None:
 
 def test_strip_markdown_leaves_plain_prose_untouched() -> None:
     plain = "Pepper and Carrot tumble through the cottage door."
-    assert _strip_markdown(plain) == plain
+    assert strip_markdown(plain) == plain
 
 
 # ─── SSE message endpoint ──────────────────────────────────────────────────────

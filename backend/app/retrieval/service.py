@@ -21,14 +21,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import chromadb
 from chromadb.errors import NotFoundError as ChromaNotFoundError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.clients.embedding import EmbeddingClient
+from app.core.text import strip_markdown
+from app.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -212,3 +218,62 @@ class RetrievalService:
                 )
             )
         return chunks
+
+
+async def fetch_chunk_text(
+    db: AsyncSession,
+    chunks: list[RetrievedChunk],
+) -> list[tuple[RetrievedChunk, str]]:
+    """Look up each chunk's canonical text from Postgres by source table + id.
+
+    Chroma stores only ids; the text of record lives in Postgres (CLAUDE.md
+    convention 4). One `IN` query per source table; order is preserved by
+    re-indexing through the original `chunks` list. Page descriptions are
+    prefixed with their character roster and markdown-stripped; wiki articles
+    are returned as ``title\\n\\nbody``. Shared by the chat orchestrator (prompt
+    assembly) and the ``/api/retrieve`` route (retrieval inspection) so both see
+    identical text.
+    """
+    if not chunks:
+        return []
+
+    ids_by_table: dict[str, list[uuid.UUID]] = {}
+    for chunk in chunks:
+        try:
+            ids_by_table.setdefault(chunk.source_table, []).append(
+                uuid.UUID(chunk.source_id)
+            )
+        except ValueError:
+            continue
+
+    text_lookup: dict[tuple[str, str], str] = {}
+
+    if "pages" in ids_by_table:
+        page_stmt = (
+            select(models.Page)
+            .where(models.Page.id.in_(ids_by_table["pages"]))
+            .options(selectinload(models.Page.characters))
+        )
+        for page in (await db.execute(page_stmt)).scalars():
+            description = strip_markdown(page.visual_description or "")
+            if page.characters:
+                names = ", ".join(sorted(c.name for c in page.characters))
+                description = f"Featuring {names}. {description}"
+            text_lookup[("pages", str(page.id))] = description
+
+    if "wiki" in ids_by_table:
+        wiki_stmt = select(models.WikiArticle).where(
+            models.WikiArticle.id.in_(ids_by_table["wiki"])
+        )
+        for article in (await db.execute(wiki_stmt)).scalars():
+            # title + body, so attribution and content are both available. Wiki
+            # seed articles are markdown-heavy at source — strip the formatting
+            # so the model doesn't mirror it in the answer.
+            text_lookup[("wiki", str(article.id))] = (
+                f"{article.title}\n\n{strip_markdown(article.content)}"
+            )
+
+    return [
+        (chunk, text_lookup.get((chunk.source_table, chunk.source_id), ""))
+        for chunk in chunks
+    ]

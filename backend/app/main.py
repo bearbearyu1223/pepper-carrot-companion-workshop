@@ -29,7 +29,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-from app.api import episodes, messages, sessions, world_graph  # noqa: E402
+from app.api import episodes, messages, retrieve, sessions, world_graph  # noqa: E402
 from app.clients import get_chat_client, get_embedding_client  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db.session import close_engine, init_engine  # noqa: E402
@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     init_engine(settings.database_url)
     app.state.chat_orchestrator = None
+    app.state.retrieval_service = None
 
     async def _build_chat_stack() -> None:
         # `RetrievalService` holds a Chroma client; the embedding model loads
@@ -67,6 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 settings.chroma_persist_dir,
                 get_embedding_client(settings),
             )
+            # Shared by the chat orchestrator and the /api/retrieve route, so the
+            # latter doesn't reach into orchestrator privates.
+            app.state.retrieval_service = retrieval
             app.state.chat_orchestrator = ChatOrchestrator(
                 get_chat_client(settings), retrieval
             )
@@ -101,12 +105,14 @@ def create_app() -> FastAPI:
     )
 
     # API routes. Episodes (Post 5) + sessions and chat messages (Post 6) +
-    # world graph (Post 9). The sessions and messages routers share the
-    # /api/sessions prefix so the message path resolves to
+    # world graph (Post 9) + retrieval inspection (the MCP/eval surface — see
+    # docs/decisions/0006-retrieval-endpoint.md). The sessions and messages
+    # routers share the /api/sessions prefix so the message path resolves to
     # /api/sessions/{id}/messages.
     app.include_router(episodes.router, prefix="/api/episodes", tags=["episodes"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(messages.router, prefix="/api/sessions", tags=["chat"])
+    app.include_router(retrieve.router, prefix="/api/retrieve", tags=["retrieve"])
     app.include_router(
         world_graph.router, prefix="/api/world-graph", tags=["world-graph"]
     )
