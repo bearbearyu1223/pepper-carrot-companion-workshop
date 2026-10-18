@@ -148,3 +148,17 @@ class TestSentenceTransformersEmbeddingClient:
         except Exception as e:  # pragma: no cover
             pytest.skip(f"sentence-transformers load failed: {e}")
         assert _vectors_close(v1, v2), "same input should produce identical vectors"
+
+    async def test_batch_matches_single_calls(
+        self, client: SentenceTransformersEmbeddingClient
+    ) -> None:
+        # Same-length texts: no row needs padding. On Apple MPS, SDPA attention used to
+        # corrupt every row after the first in exactly this case.
+        texts = ["Pepper is a witch", "Carrot is a cat"]
+        try:
+            batch = await client.embed_batch(texts)
+            singles = [(await client.embed_batch([t]))[0] for t in texts]
+        except Exception as e:  # pragma: no cover
+            pytest.skip(f"sentence-transformers load failed: {e}")
+        for b, s in zip(batch, singles, strict=True):
+            assert sum(x * y for x, y in zip(b, s, strict=True)) > 0.9999
