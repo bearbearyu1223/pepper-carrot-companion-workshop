@@ -47,10 +47,17 @@ class SentenceTransformersEmbeddingClient:
 
     def _ensure_model(self) -> SentenceTransformer:
         if self._model is None:
+            import torch
             from sentence_transformers import SentenceTransformer
 
             logger.info("Loading sentence-transformers model %s (first use; may download ~2GB)", self._model_name)
-            self._model = SentenceTransformer(self._model_name)
+            model_kwargs: dict[str, str] = {}
+            if torch.backends.mps.is_available() and not torch.cuda.is_available():
+                # On Apple MPS, SDPA attention returns wrong vectors for every row after the
+                # first when no row in the batch needs padding (cosine ~0.7 to the true vector).
+                # Eager attention is correct there; tests/test_embedding.py checks batch == single.
+                model_kwargs["attn_implementation"] = "eager"
+            self._model = SentenceTransformer(self._model_name, model_kwargs=model_kwargs)
             # sentence-transformers renamed get_sentence_embedding_dimension to
             # get_embedding_dimension; prefer the new name and fall back for older versions.
             get_dim = getattr(self._model, "get_embedding_dimension", None)
